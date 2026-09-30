@@ -163,7 +163,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
             ticker: "HUGE/NFX",
             name: "HUGE / NFX",
             full_name: "InterstellarChain:HUGE/NFX",
-            description: "HUGE / NFX · PancakeSwap V2",
+            description: "HUGE / NFX",
             type: "crypto",
             session: "24x7",
             exchange: "InterstellarChain",
@@ -193,13 +193,28 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
           const key = intervalForResolution(resolution);
           const from = unixSeconds(period.from);
           const to = unixSeconds(period.to);
+
+          // 首屏行情快照已经携带最近 K 线。优先交给图表绘制，避免移动
+          // WebView 因历史分页请求缓慢而一直停留在 TradingView 加载状态。
+          const cachedBars = getBarsForInterval(key)
+            .filter((bar) => bar.time / 1_000 >= from && bar.time / 1_000 < to);
+          if (cachedBars.length > 0) {
+            onResult(cachedBars, { noData: false });
+            // 更早历史仍在后台加载，供后续拖动和切换周期使用。
+            void fetchBars(key, from, to).catch(() => {});
+            return;
+          }
+
           void fetchBars(key, from, to)
             .then((bars) => {
               if (!cancelled) onResult(bars, { noData: bars.length === 0 });
             })
             .catch((error: unknown) => {
               // 请求失败不等于历史结束，也不能用不完整缓存补出假平盘柱。
-              if (!cancelled) onError(error instanceof Error ? error.message : "K线加载失败");
+              if (!cancelled) {
+                setStatus("error");
+                onError(error instanceof Error ? error.message : "K线加载失败");
+              }
             });
         },
         subscribeBars: (

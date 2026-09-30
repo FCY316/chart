@@ -69,9 +69,12 @@ a { color: inherit; text-decoration: none; }
 .pair-heading { min-width: 0; gap: 12px; }
 .pair-identity { min-width: 0; }
 .token-stack { position: relative; width: 47px; height: 39px; flex: 0 0 47px; }
-.token-logo { display: grid; position: absolute; width: 34px; height: 34px; place-items: center; border: 2px solid var(--background); border-radius: 50%; font-size: 14px; font-weight: 800; }
-.token-logo-huge { z-index: 1; top: 0; left: 0; background: linear-gradient(145deg, #52ebaa, #159c70); color: #052d20; }
-.token-logo-nfx { right: 0; bottom: 0; background: linear-gradient(145deg, #9cc4ff, #4e75d4); color: #10264b; }
+.token-logo { display: block; position: absolute; width: 34px; height: 34px; overflow: hidden; border: 2px solid var(--background); border-radius: 50%; }
+.token-logo-image { object-fit: cover; }
+.token-logo-huge { z-index: 1; top: 0; left: 0; }
+.token-logo-nfx { right: 0; bottom: 0; }
+/* NFX 原图主体留白更多，适度放大以与 HUGE 的视觉尺寸一致。 */
+.token-logo-nfx .token-logo-image { transform: scale(1.12); }
 .pair-title-row { min-width: 0; gap: 8px; }
 .pair-title-row h1 { min-width: 0; margin: 0; overflow: hidden; color: var(--text); font-size: clamp(20px, 5vw, 28px); letter-spacing: -0.04em; text-overflow: ellipsis; white-space: nowrap; }
 .pair-title-row .ui-badge { min-height: 21px; padding-inline: 7px; border-color: rgba(110, 168, 255, 0.25); background: rgba(110, 168, 255, 0.1); color: var(--blue); font-size: 9px; letter-spacing: 0.07em; }

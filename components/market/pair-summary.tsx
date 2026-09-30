@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { Check, Copy, Droplets, BarChart3, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -12,16 +13,20 @@ export function PairSummary({ model }: { model: ReturnType<typeof useMarketDashb
 
   return (
     <>
-      <section className="pair-hero">
+      <section className="pair-hero mt-4">
         <div className="pair-heading">
           <div className="token-stack" aria-hidden="true">
-            <span className="token-logo token-logo-huge">H</span>
-            <span className="token-logo token-logo-nfx">N</span>
+            <span className="token-logo token-logo-huge">
+              <Image className="token-logo-image" src="/tokens/huge.png" alt="" fill sizes="34px" priority />
+            </span>
+            <span className="token-logo token-logo-nfx">
+              <Image className="token-logo-image" src="/tokens/nfx.png" alt="" fill sizes="34px" priority />
+            </span>
           </div>
           <div className="pair-identity">
             <div className="pair-title-row">
               <h1>{market.metadata.pair}</h1>
-              <Badge>V2 LP</Badge>
+              <Badge>LP</Badge>
             </div>
             <button
               type="button"
