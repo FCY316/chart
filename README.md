@@ -1,36 +1,170 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# chart
 
-## Getting Started
+移动端优先的 HUGE / NFX 行情页：TradingView K 线、池子储备、涨跌幅和实时交易列表。
+价格为 **1 HUGE 等于多少 NFX**；HUGE 对应链上的 WHUGE。没有 USD 价格，priceUsd 为 null。
 
-First, run the development server:
+## 项目结构与职责
 
-```bash
+- app/page.tsx：页面布局和组件组合。
+- hooks/use-market-dashboard.ts：行情状态、SSE/备用轮询、周期偏好、交易分页。
+- components/market/pair-summary.tsx：交易对信息、价格、储备和统计。
+- components/market/transactions-panel.tsx：交易筛选、复制和触底加载。
+- components/tradingview-chart.tsx：TradingView 初始化、历史数据源及实时订阅。
+- lib/market-client.ts：前端 HTTP 与 SSE 请求封装。
+- utils/market.ts：格式化、剪贴板、行情合并和连续 K 线展示。
+- lib/market.ts：共享类型，不导入历史 JSON。
+- lib/market-reader.ts：服务端运行时读取与一秒共享缓存。
+- lib/market-api.ts：快照裁剪、K 线分页、交易游标。
+- lib/market/config.mjs：链、合约、RPC 和环境配置。
+- lib/market/providers.mjs：RPC、固定区块储备读取、分段日志查询。
+- lib/market/events.mjs：Swap/Mint/Burn/Sync 解析。
+- lib/market/aggregation.mjs：K 线和指标聚合。
+- lib/market/storage.mjs：持久化及临时文件原子替换。
+- lib/market/service.mjs：追块、实时监听、重连与历史合并。
+- scripts/：监听器和手动全量同步的命令行入口。
+- deploy/：PM2 进程配置和 Nginx 示例。
+
+组件和关键的数据一致性处理均有注释。UI 使用本地 shadcn 风格组件与 lucide-react；链上访问使用 ethers。
+
+## 环境与启动
+
+使用 Node.js 22 或更新的兼容版本，以及 npm。安装：
+
+~~~bash
+npm ci
+~~~
+
+复制 .env.example 为所需环境文件并填写：.env.development / .env.test / .env.production。
+环境文件不提交到 Git；所有环境目前连接同一条链，不是三条不同链。
+
+关键配置：
+
+~~~dotenv
+MARKET_CHAIN_ID=1677
+EVM_RPC_URL=https://rpc.interstellarchain.org/
+EVM_WS_URL=wss://rpc.interstellarchain.org
+DEX_PAIR_ADDRESS=0xe51a1b18727c17e01ccd87008255d8a7abf4a006
+BASE_TOKEN_ADDRESS=0x8AF5Da3DEA6eFe400Ddab5baE395eE3c818d325A
+QUOTE_TOKEN_ADDRESS=0xA7eAA7BB5284D37bf24FB91077Fa040f01B0C703
+QUOTE_DISPLAY_SYMBOL=HUGE
+MARKET_START_BLOCK=219335
+MARKET_LOG_CHUNK_SIZE=2000
+MARKET_DATA_FILE=data/market.json
+NEXT_PUBLIC_NETWORK_NAME=InterstellarChain
+NEXT_PUBLIC_EXPLORER_URL=https://scan.interstellarchain.org/
+~~~
+
+BASE/QUOTE 合约配置沿用内部 NFX/WHUGE 顺序，显示方向由读取层转换为 HUGE/NFX。
+不同环境如同时运行，必须给 MARKET_DATA_FILE 设置不同路径，避免多个 Worker 覆盖同一个文件。
+
+本地启动需要两个终端：
+
+~~~bash
+npm run market:watch:dev
+~~~
+
+~~~bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+~~~
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+浏览器打开终端输出的地址，默认 http://localhost:3000。
+watch 首次无文件时从 219335 扫描；已有数据时从 history.lastBlock + 1 追到最新，然后持续监听。
+WebSocket 自动退避重连，HTTP 每 30 秒检查区块作兜底。历史不按天数删除。
+测试配置使用 market:watch:test；生产使用 market:watch:prod。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+market:sync:dev / market:sync:test / market:sync:prod 会从起点全量重建文件。
+仅在停掉对应 watcher 并备份后执行，不要让 sync 与 watcher 同时写同一文件。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Linux 生产部署
 
-## Learn More
+部署模型为常驻 Next.js Web + 单个常驻行情 Worker + 可持久化磁盘。
+当前文件存储不适合多副本共同写入，也不适合没有持久磁盘的短时 Serverless 任务。
 
-To learn more about Next.js, take a look at the following resources:
+1. 上传源码、package-lock.json 和 public/charting_library；无需上传 node_modules、.next、开发环境文件和 data/market.json。
+2. 创建 .env.production，设置独立持久路径，例如 MARKET_DATA_FILE=/var/lib/interstellar-market/market.json。目录需由运行进程的系统用户读写；Web 与 Worker 使用相同路径。
+3. 在项目目录安装并构建：
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+~~~bash
+npm ci
+npm run build
+~~~
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. 若服务器已安装 PM2，在项目目录运行：
 
-## Deploy on Vercel
+~~~bash
+pm2 start deploy/ecosystem.config.cjs
+pm2 save
+pm2 startup
+~~~
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+按 pm2 startup 输出完成系统开机启动设置。配置启动 chart-web 和 chart-watch，Worker 实例数必须是 1。
+未使用 PM2 时，可在两个受进程管理器托管的终端分别运行 npm run start 与 npm run market:watch:prod。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+5. 配置 Nginx，参考 deploy/nginx.conf.example，替换域名并配置 HTTPS。检查配置后重载 Nginx。
+SSE 路径必须关闭代理缓冲和缓存，并允许长连接；CDN 或负载均衡也要遵循相同设置。
+6. 验证：
+
+~~~bash
+pm2 status
+pm2 logs chart-watch --lines 50
+curl -f http://127.0.0.1:3000/api/market
+curl -N --max-time 20 http://127.0.0.1:3000/api/market/stream
+~~~
+
+SSE 应出现 data 事件及心跳。无 JSON 或首次扫描未完成时 JSON 接口返回 503；同步完成后自动恢复。
+检查返回的 history.lastBlock 随链推进，浏览器显示 SSE 已连接。
+
+更新代码时保留持久目录和 .env.production，重新 npm ci、npm run build 后执行：
+
+~~~bash
+pm2 restart deploy/ecosystem.config.cjs --update-env
+~~~
+
+NEXT_PUBLIC_* 是构建时变量，修改后必须重新构建。
+
+## JSON 能不能删除？
+
+**不需要把本地 JSON 上传到服务器，但已运行服务器上的唯一历史文件不能随意删除。**
+
+- 保留历史并快速接续：停掉旧 watcher，备份并复制完整 market.json 到新服务器持久目录，再启动新 watcher。它从已保存断点继续。
+- 接受全量重建：部署时不带 JSON，首次 watcher 自动从 219335 重扫。重建期间没有历史行情可显示，耗时取决于区块数及 RPC。
+- 已运行环境要重建：先停止 watcher，把旧文件移到备份位置，再启动 watcher。不要只清空 events 后保留 lastBlock，这会跳过被清空的历史。
+- 文件损坏会报错，不会被当作新安装悄悄覆盖。应恢复备份或按上述流程重建。
+
+构建已与数据文件解耦；data/*.json 已加入 Git 忽略（不会自动取消 Git 对已跟踪文件的跟踪）。
+后续写入使用紧凑 JSON，省去缩进空白；已有文件不会为了压缩而被立即覆盖，也没有删除历史。
+market.json 包含所有事件和派生 K 线，规模会持续增长。前端分页减少网络响应，但后端仍需读取完整文件、聚合完整历史，不能认为分页解决了存储扩展。
+长期大量数据应迁移到数据库，按事件唯一键和时间/区块索引查询；当前版本尚未实现数据库存储。
+持久目录需定期备份到另一位置，并监控磁盘空间。
+
+## 接口与实时更新
+
+| 路径 | 用途 |
+| --- | --- |
+| GET /api/market | 首屏精简快照，最近 K 线和交易；full=true 可读取完整历史，避免频繁调用 |
+| GET /api/market/candles | interval、from、to、before、limit 分页读取 K 线，最多 2000 条原始柱 |
+| GET /api/market/transactions | cursor、limit 分页读取交易，最多 200 条 |
+| GET /api/market/stream | SSE 推送现价、储备、最近柱和事件；15 秒心跳 |
+
+Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网触发重建、多个进程覆盖文件或储备刷新推进历史断点。
+同步和重建使用 CLI 命令。页面刷新按钮只重新读取行情，不直接写链或重新扫描。
+
+浏览器 SSE 失败时退回每 10 秒请求快照，重连后恢复 SSE。历史分页保留已加载内容，失败后点击刷新可重试。
+服务端同一进程一秒内共享 JSON 读取结果，避免每个 SSE 客户端重复解析大文件。
+
+## K 线口径和当前限制
+
+支持 1m / 5m / 15m / 1h / 4h / 1d。连续展示时无交易周期补上一收盘价、成交量为零；下一根展示开盘价接上一根收盘价，高低价包含这个开盘价。
+这与“第一笔成交价作为开盘价”口径不同，原始交易和 JSON 不被前端改写。
+当前价格使用池子储备 NFX/HUGE；最新柱收盘价与价格卡片统一。TradingView 属性和顶部周期选择在浏览器本地保存，不代表完整行情已离线保存。
+
+已知限制：历史事件时间目前按区块采样估算，尚未逐个读取真实区块时间；极短周期可能有时间桶偏差。当前监听器没有链重组回滚机制。精确历史分析或正式扩大使用前应补齐这些能力。
+SSE 只带最近事件，极长断线或短时大量交易仍需通过历史分页读取完整记录。
+
+## 检查命令
+
+~~~bash
+npx tsc --noEmit
+npm run lint
+npm run build
+~~~

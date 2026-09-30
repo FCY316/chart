@@ -1,0 +1,16 @@
+:root:not(.theme-dark) {
+  /* 所有元素所在页面的主色调 */
+  --tv-color-platform-background: #fff;
+  /* 工具栏背景颜色 */
+  --tv-color-pane-background: #fbfbfb;
+}
+
+.theme-dark:root {
+  /* 所有元素所在页面的主色调 */
+  --tv-color-platform-background: #000;
+  /* 工具栏背景颜色 */
+  --tv-color-pane-background: #262626;
+}
+.series-l31H9iuA .titleWrapper-l31H9iuA {
+  display: none !important;
+}

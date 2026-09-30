@@ -1,14 +1,22 @@
 {
-  "name": "tradingview",
+  "name": "chart",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "market:sync:dev": "node --env-file=.env.development scripts/sync-market.mjs",
+    "market:sync:test": "node --env-file=.env.test scripts/sync-market.mjs",
+    "market:sync:prod": "node --env-file=.env.production scripts/sync-market.mjs",
+    "market:watch:dev": "node --env-file=.env.development scripts/watch-market.mjs",
+    "market:watch:test": "node --env-file=.env.test scripts/watch-market.mjs",
+    "market:watch:prod": "node --env-file=.env.production scripts/watch-market.mjs"
   },
   "dependencies": {
+    "ethers": "^6.17.0",
+    "lucide-react": "^1.48.0",
     "next": "16.3.7",
     "react": "19.2.8",
     "react-dom": "19.2.8"

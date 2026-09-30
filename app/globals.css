@@ -1,26 +1,197 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #060a0f;
+  --foreground: #edf4fb;
+  --surface: #0b1118;
+  --surface-raised: #101923;
+  --line: #1b2937;
+  --line-soft: rgba(142, 162, 184, 0.12);
+  --text: #edf4fb;
+  --muted: #8290a3;
+  --muted-strong: #aab7c7;
+  --green: #29cf8f;
+  --green-soft: rgba(41, 207, 143, 0.12);
+  --red: #f26d78;
+  --red-soft: rgba(242, 109, 120, 0.12);
+  --blue: #6ea8ff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* { box-sizing: border-box; }
+
+html {
+  min-width: 320px;
+  background: var(--background);
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
+  min-width: 320px;
+  margin: 0;
+  background: radial-gradient(circle at 85% -10%, rgba(41, 207, 143, 0.08), transparent 35rem), var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, a { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; }
+a { color: inherit; text-decoration: none; }
+
+.market-app { min-height: 100svh; padding: 0 0 calc(22px + env(safe-area-inset-bottom)); }
+.page-width { width: min(100% - 28px, 1160px); margin-inline: auto; }
+.topbar { display: flex; align-items: center; justify-content: space-between; min-height: 70px; border-bottom: 1px solid var(--line-soft); }
+.brand-lockup, .topbar-actions, .pair-heading, .pair-title-row, .chart-heading, .section-title, .network-chip, .live-badge, .address-button { display: flex; align-items: center; }
+.brand-lockup { gap: 10px; }
+.brand-mark { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid rgba(41, 207, 143, 0.38); border-radius: 9px; background: var(--green-soft); color: var(--green); }
+.brand-name, .brand-subtitle { margin: 0; line-height: 1; }
+.brand-name { color: var(--text); font-size: 11px; font-weight: 800; letter-spacing: 0.18em; }
+.brand-subtitle { margin-top: 5px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: 0.15em; }
+.topbar-actions { gap: 8px; }
+.ui-badge, .network-chip { min-height: 26px; border: 1px solid var(--line); border-radius: 999px; padding: 0 9px; color: var(--muted-strong); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.live-badge { gap: 6px; border-color: rgba(41, 207, 143, 0.27); background: var(--green-soft); color: var(--green); letter-spacing: 0.08em; }
+.live-dot, .section-pulse { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(41, 207, 143, 0.1); }
+.network-chip { gap: 5px; color: var(--muted); }
+.page-content { padding-top: 22px; }
+.error-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; border: 1px solid rgba(242, 109, 120, 0.28); border-radius: 12px; background: var(--red-soft); padding: 10px 12px 10px 14px; color: #ffb6bd; font-size: 12px; }
+.loading-page { display: grid; min-height: 65svh; place-items: center; align-content: center; gap: 12px; color: var(--muted); font-size: 13px; }
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.pair-hero { display: grid; gap: 10px; margin-bottom: 18px; }
+.pair-heading { min-width: 0; gap: 12px; }
+.pair-identity { min-width: 0; }
+.token-stack { position: relative; width: 47px; height: 39px; flex: 0 0 47px; }
+.token-logo { display: grid; position: absolute; width: 34px; height: 34px; place-items: center; border: 2px solid var(--background); border-radius: 50%; font-size: 14px; font-weight: 800; }
+.token-logo-huge { z-index: 1; top: 0; left: 0; background: linear-gradient(145deg, #52ebaa, #159c70); color: #052d20; }
+.token-logo-nfx { right: 0; bottom: 0; background: linear-gradient(145deg, #9cc4ff, #4e75d4); color: #10264b; }
+.pair-title-row { min-width: 0; gap: 8px; }
+.pair-title-row h1 { min-width: 0; margin: 0; overflow: hidden; color: var(--text); font-size: clamp(20px, 5vw, 28px); letter-spacing: -0.04em; text-overflow: ellipsis; white-space: nowrap; }
+.pair-title-row .ui-badge { min-height: 21px; padding-inline: 7px; border-color: rgba(110, 168, 255, 0.25); background: rgba(110, 168, 255, 0.1); color: var(--blue); font-size: 9px; letter-spacing: 0.07em; }
+.address-button { max-width: 100%; gap: 5px; margin-top: 6px; overflow: hidden; border: 0; background: transparent; padding: 0; color: var(--muted); cursor: pointer; font-family: var(--font-mono); font-size: 10px; white-space: nowrap; }
+.address-label { color: var(--muted-strong); font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 700; }
+.address-value { overflow: hidden; text-overflow: ellipsis; }
+.address-button:hover, .address-button:focus-visible { color: var(--green); outline: none; }
+.price-block { padding-left: 0; text-align: left; }
+.price-value { color: var(--text); font-family: var(--font-mono); font-size: clamp(22px, 7.2vw, 30px); font-weight: 700; letter-spacing: -0.05em; white-space: nowrap; }
+.price-value span, .change-value span { color: var(--muted); font-family: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0; }
+.change-value { margin-top: 5px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+.change-value.positive { color: var(--green); }
+.change-value.negative { color: var(--red); }
+
+/* 手机端将价格独占一行，避免它与交易对名称在窄屏上相互挤压。 */
+@media (min-width: 560px) {
+  .pair-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+  .price-block { flex: 0 0 auto; padding-left: 0; text-align: right; }
+  .price-value { font-size: clamp(20px, 5.5vw, 30px); }
+}
+
+.ui-card { border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(160deg, rgba(16, 25, 35, 0.96), rgba(9, 15, 22, 0.98)); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.17); }
+.chart-card { overflow: hidden; }
+.ui-card-header { padding: 13px 14px; }
+.chart-card-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid var(--line-soft); }
+.chart-heading { gap: 8px; color: var(--muted-strong); font-size: 12px; font-weight: 750; letter-spacing: 0.04em; }
+.chart-heading svg { color: var(--green); }
+.chart-unit { border-left: 1px solid var(--line); padding-left: 8px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.icon-link { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; color: var(--muted); }
+.icon-link:hover, .icon-link:focus-visible { background: var(--surface-raised); color: var(--green); outline: none; }
+
+.interval-tabs, .transaction-filters { display: flex; align-items: center; gap: 4px; padding: 8px 10px; overflow-x: auto; scrollbar-width: none; }
+.interval-tabs::-webkit-scrollbar, .transaction-filters::-webkit-scrollbar { display: none; }
+.interval-tabs button, .transaction-filters button { flex: 0 0 auto; border: 0; border-radius: 7px; background: transparent; padding: 6px 10px; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
+.interval-tabs button:hover, .transaction-filters button:hover, .interval-tabs button.active, .transaction-filters button.active { background: var(--green-soft); color: var(--green); }
+.chart-content { padding: 0; }
+.chart-shell { position: relative; height: min(74svh, 650px); min-height: 480px; background: #0b1118; }
+.tradingview-container { width: 100%; height: 100%; }
+.chart-state { display: grid; position: absolute; inset: 0; place-items: center; background: rgba(11, 17, 24, 0.76); color: var(--muted); font-size: 12px; pointer-events: none; }
+.chart-state-error { color: #ffb6bd; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
+.stat-card { min-width: 0; padding: 12px; }
+.stat-card > svg { margin-bottom: 12px; color: var(--green); }
+.stat-label, .stat-card strong, .stat-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-label { color: var(--muted); font-size: 10px; }
+.stat-card strong { margin-top: 6px; color: var(--text); font-family: var(--font-mono); font-size: 12px; }
+.stat-card small { margin-top: 5px; color: var(--muted); font-size: 9px; }
+
+.transactions-card { overflow: hidden; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-block: 14px 9px; }
+.section-title { gap: 9px; color: var(--text); font-size: 14px; font-weight: 750; }
+.section-header p { margin: 6px 0 0 15px; color: var(--muted); font-size: 10px; }
+.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-weight: 700; transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease; }
+.ui-button:disabled { cursor: not-allowed; opacity: 0.55; }
+.ui-button-md { min-height: 36px; padding: 0 14px; font-size: 12px; }
+.ui-button-sm { min-height: 28px; padding: 0 9px; font-size: 11px; }
+.ui-button-icon { width: 30px; height: 30px; padding: 0; }
+.ui-button-primary { background: var(--green); color: #042b1e; }
+.ui-button-primary:hover { background: #4bdda2; }
+.ui-button-outline { border-color: var(--line); background: transparent; color: var(--muted-strong); }
+.ui-button-outline:hover { border-color: var(--green); color: var(--green); }
+.ui-button-ghost { background: transparent; color: var(--muted-strong); }
+.ui-button-ghost:hover { background: var(--surface-raised); color: var(--text); }
+
+.transaction-list { max-height: 540px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-color: var(--line) transparent; }
+.transaction-row { display: grid; grid-template-columns: 31px minmax(0, 1fr) auto auto; align-items: center; gap: 9px; min-height: 64px; border-top: 1px solid var(--line-soft); padding: 10px 14px; }
+.transaction-row:hover { background: rgba(255, 255, 255, 0.025); }
+.transaction-icon { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 9px; }
+.transaction-icon.buy { background: var(--green-soft); color: var(--green); }
+.transaction-icon.sell { background: var(--red-soft); color: var(--red); }
+.transaction-icon.liquidity { background: rgba(110, 168, 255, 0.12); color: var(--blue); }
+.transaction-main, .transaction-amount, .transaction-time { min-width: 0; }
+.transaction-main strong, .transaction-main small, .transaction-amount strong, .transaction-amount small, .transaction-time { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-main strong, .transaction-amount strong { color: var(--muted-strong); font-size: 11px; }
+.transaction-main small, .transaction-amount small, .transaction-time { margin-top: 4px; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+.transaction-wallet { display: flex; align-items: center; gap: 4px; max-width: 100%; margin-top: 4px; overflow: hidden; border: 0; background: transparent; padding: 0; color: var(--muted); cursor: pointer; font-family: var(--font-mono); font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-wallet:hover, .transaction-wallet:focus-visible { color: var(--green); outline: none; }
+.transaction-wallet svg { flex: 0 0 auto; }
+.transaction-amount { text-align: right; }
+.transaction-time { display: flex; align-items: center; gap: 4px; }
+.transaction-time-mobile { display: none; }
+.transaction-time:hover, .transaction-time:focus-visible { color: var(--green); outline: none; }
+.empty-state, .load-more { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 60px; color: var(--muted); font-size: 11px; }
+.load-more { color: var(--green); }
+.page-footer { display: flex; justify-content: space-between; gap: 12px; padding: 17px 2px 0; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+
+@media (min-width: 760px) {
+  .page-width { width: min(100% - 48px, 1160px); }
+  .topbar { min-height: 78px; }
+  .page-content { padding-top: 32px; }
+  .pair-hero { margin-bottom: 22px; }
+  .chart-shell { height: min(64vh, 570px); min-height: 350px; }
+  .transaction-list { max-height: 580px; }
+  .transaction-row { grid-template-columns: 34px minmax(0, 1fr) 170px 140px; padding-inline: 18px; }
+  .stat-card { padding: 15px; }
+}
+
+@media (max-width: 430px) {
+  .network-chip { display: none; }
+  .page-width { width: min(100% - 20px, 1160px); }
+  .stats-grid { gap: 6px; }
+  .stat-card { padding: 10px 8px; }
+  .stat-card strong { font-size: 10px; }
+}
+
+/* 手机列表改为两行，交易时间始终保留，不会被金额列挤掉。 */
+@media (max-width: 759px) {
+  .transaction-row {
+    grid-template-areas:
+      "icon main amount"
+      ". time amount";
+    grid-template-columns: 29px minmax(0, 1fr) auto;
+    gap: 3px 8px;
+    padding-inline: 10px;
+  }
+  .transaction-icon { grid-area: icon; }
+  .transaction-main { grid-area: main; }
+  .transaction-amount { grid-area: amount; }
+  .transaction-time { display: flex; grid-area: time; margin-top: 0; }
+  .transaction-time-desktop { display: none; }
+  .transaction-time-mobile { display: inline; }
 }
