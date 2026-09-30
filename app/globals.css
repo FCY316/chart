@@ -114,7 +114,8 @@ a { color: inherit; text-decoration: none; }
 .chart-shell { position: relative; height: min(74svh, 650px); min-height: 480px; background: #0b1118; }
 .tradingview-container { width: 100%; height: 100%; }
 .chart-state { display: grid; position: absolute; inset: 0; place-items: center; background: rgba(11, 17, 24, 0.76); color: var(--muted); font-size: 12px; pointer-events: none; }
-.chart-state-error { color: #ffb6bd; }
+.chart-state-error { color: #ffb6bd; pointer-events: auto; }
+.chart-error-content { display: grid; justify-items: center; gap: 12px; padding: 16px; text-align: center; }
 
 .stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
 .stat-card { min-width: 0; padding: 12px; }

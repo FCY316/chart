@@ -12,6 +12,7 @@
 - components/tradingview-chart.tsx：TradingView 初始化、历史数据源及实时订阅。
 - lib/market-client.ts：前端 HTTP 与 SSE 请求封装。
 - utils/market.ts：格式化、剪贴板、行情合并和连续 K 线展示。
+- utils/tradingview-loader.ts：共享图表脚本加载，下载超时和失败重试。
 - lib/market.ts：共享类型，不导入历史 JSON。
 - lib/market-reader.ts：服务端运行时读取与一秒共享缓存。
 - lib/market-api.ts：快照裁剪、K 线分页、交易游标。
@@ -157,6 +158,9 @@ Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网
 支持 1m / 5m / 15m / 1h / 4h / 1d。连续展示时无交易周期补上一收盘价、成交量为零；下一根展示开盘价接上一根收盘价，高低价包含这个开盘价。
 这与“第一笔成交价作为开盘价”口径不同，原始交易和 JSON 不被前端改写。
 当前价格使用池子储备 NFX/HUGE；最新柱收盘价与价格卡片统一。TradingView 属性和顶部周期选择在浏览器本地保存，不代表完整行情已离线保存。
+
+移动浏览器使用 TradingView 的 `iframe_loading_compatibility_mode`，以 `about:blank` 替代默认的 `blob:` iframe；所有数据源回调异步执行。脚本下载、K 线分页请求设置 25 秒超时，图表初始化设置 45 秒超时。失败时图表区域会显示具体原因和“重新加载图表”按钮，无需重载整个页面。
+该模式与异步回调的说明见 [TradingView 故障排查](https://www.tradingview.com/charting-library-docs/latest/troubleshooting/) 和 [Datafeed API](https://www.tradingview.com/charting-library-docs/latest/connecting_data/datafeed-api/)。
 
 已知限制：历史事件时间目前按区块采样估算，尚未逐个读取真实区块时间；极短周期可能有时间桶偏差。当前监听器没有链重组回滚机制。精确历史分析或正式扩大使用前应补齐这些能力。
 SSE 只带最近事件，极长断线或短时大量交易仍需通过历史分页读取完整记录。

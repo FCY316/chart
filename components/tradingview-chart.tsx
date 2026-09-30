@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchCandlePage } from "@/lib/market-client";
+import { loadTradingViewLibrary } from "@/utils/tradingview-loader";
 import type { Candle } from "@/lib/market";
 import { addCurrentPriceCandle, candleTimestamp, type MarketInterval } from "@/utils/market";
 
@@ -79,6 +80,8 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
   const currentPriceRef = useRef(currentPrice);
   const updatedAtRef = useRef(updatedAt);
   const [status, setStatus] = useState("loading");
+  const [statusMessage, setStatusMessage] = useState("正在加载 TradingView 脚本…");
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     intervalRef.current = interval;
@@ -116,20 +119,58 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
 
   useEffect(() => {
     let cancelled = false;
+    let chartReady = false;
+    let phase = "图表初始化";
+    let initializationTimer: number | undefined;
+    const requests = new Set<AbortController>();
+    const callbacks = new Set<number>();
+    // 即使已有缓存，回调也必须在另一个宏任务执行；同步回调可能让图表初始化卡住。
+    const defer = (callback: () => void) => {
+      const timer = window.setTimeout(() => {
+        callbacks.delete(timer);
+        if (!cancelled) callback();
+      }, 0);
+      callbacks.add(timer);
+    };
+    const fail = (message: string) => {
+      if (cancelled) return;
+      window.clearTimeout(initializationTimer);
+      setStatusMessage(message);
+      setStatus("error");
+    };
+    const requestPage = async (options: Parameters<typeof fetchCandlePage>[0]) => {
+      const controller = new AbortController();
+      requests.add(controller);
+      const timer = window.setTimeout(() => controller.abort(), 25_000);
+      try {
+        return await fetchCandlePage({ ...options, signal: controller.signal });
+      } catch (error) {
+        if (controller.signal.aborted) throw new Error("K 线请求超时，请检查网络后重试");
+        throw error;
+      } finally {
+        window.clearTimeout(timer);
+        requests.delete(controller);
+      }
+    };
     const init = () => {
       if (cancelled || !containerRef.current || widgetRef.current) return;
       const tradingView = (window as unknown as TradingViewWindow).TradingView;
       if (!tradingView) {
-        setStatus("error");
+        fail("图表脚本无法运行，请重试");
         return;
       }
+      setStatus("loading");
+      setStatusMessage("正在初始化 TradingView…");
+      initializationTimer = window.setTimeout(() => {
+        if (!chartReady) fail(`${phase}超时，请重试`);
+      }, 45_000);
 
       const fetchBars = async (key: MarketInterval, from: number, to: number) => {
         // 完整读取当前请求范围，再补平盘柱，不能把分页截断误当成无交易。
         let before = to;
         const incoming: Candle[] = [];
         while (!cancelled) {
-          const payload = await fetchCandlePage({ interval: key, limit: 1_000, from, before });
+          const payload = await requestPage({ interval: key, limit: 1_000, from, before });
           incoming.push(...payload.items);
           if (!payload.page.hasMore) break;
           const cursor = payload.page.nextCursor;
@@ -137,7 +178,8 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
           before = cursor;
         }
         // 页首需要上一根真实收盘价，以保持分页边界的开盘价一致。
-        const predecessor = await fetchCandlePage({ interval: key, limit: 1, before: from });
+        if (cancelled) return [];
+        const predecessor = await requestPage({ interval: key, limit: 1, before: from });
         incoming.push(...predecessor.items);
         candlesRef.current = {
           ...candlesRef.current,
@@ -148,18 +190,19 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
 
       const datafeed = {
         onReady: (callback: (configuration: Record<string, unknown>) => void) => {
-          setTimeout(() => callback({
+          phase = "行情数据初始化";
+          defer(() => callback({
             supported_resolutions: Object.values(RESOLUTIONS),
             supports_marks: false,
             supports_timescale_marks: false,
             // We derive bar times from the API. Do not advertise server time
             // unless a getServerTime callback is also provided.
             supports_time: false,
-          }), 0);
+          }));
         },
-        searchSymbols: (_input: string, _exchange: string, _symbolType: string, callback: (symbols: unknown[]) => void) => callback([]),
+        searchSymbols: (_input: string, _exchange: string, _symbolType: string, callback: (symbols: unknown[]) => void) => defer(() => callback([])),
         resolveSymbol: (_name: string, callback: (symbol: Record<string, unknown>) => void) => {
-          callback({
+          defer(() => callback({
             ticker: "HUGE/NFX",
             name: "HUGE / NFX",
             full_name: "InterstellarChain:HUGE/NFX",
@@ -181,7 +224,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
             supported_resolutions: Object.values(RESOLUTIONS),
             volume_precision: 2,
             data_status: "streaming",
-          });
+          }));
         },
         getBars: (
           _symbol: Record<string, unknown>,
@@ -199,7 +242,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
           const cachedBars = getBarsForInterval(key)
             .filter((bar) => bar.time / 1_000 >= from && bar.time / 1_000 < to);
           if (cachedBars.length > 0) {
-            onResult(cachedBars, { noData: false });
+            defer(() => onResult(cachedBars, { noData: false }));
             // 更早历史仍在后台加载，供后续拖动和切换周期使用。
             void fetchBars(key, from, to).catch(() => {});
             return;
@@ -207,13 +250,14 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
 
           void fetchBars(key, from, to)
             .then((bars) => {
-              if (!cancelled) onResult(bars, { noData: bars.length === 0 });
+              defer(() => onResult(bars, { noData: bars.length === 0 }));
             })
             .catch((error: unknown) => {
               // 请求失败不等于历史结束，也不能用不完整缓存补出假平盘柱。
               if (!cancelled) {
-                setStatus("error");
-                onError(error instanceof Error ? error.message : "K线加载失败");
+                const message = error instanceof Error ? error.message : "K线加载失败";
+                fail(message);
+                defer(() => onError(message));
               }
             });
         },
@@ -242,7 +286,14 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         timezone: "Asia/Shanghai",
         theme: "dark",
         autosize: true,
-        enabled_features: ["hide_left_toolbar_by_default", "save_chart_properties_to_local_storage"],
+        enabled_features: [
+          "hide_left_toolbar_by_default",
+          "save_chart_properties_to_local_storage",
+          // 库默认用 blob URL 加载 iframe，部分手机 WebView 会拦截。
+          // 官方兼容模式改用 about:blank + document.write，保持同源数据源。
+          ...(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+            ? ["iframe_loading_compatibility_mode"] : []),
+        ],
         disabled_features: [
           "header_symbol_search",
           "header_resolutions",
@@ -267,33 +318,27 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
       });
       widgetRef.current = widget;
       widget.onChartReady(() => {
+        chartReady = true;
+        window.clearTimeout(initializationTimer);
         if (!cancelled) setStatus("ready");
       });
     };
 
-    const scriptId = "tradingview-charting-library";
-    const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
-    if (existing) {
-      if ((window as unknown as TradingViewWindow).TradingView) init();
-      else existing.addEventListener("load", init, { once: true });
-    } else {
-      const script = document.createElement("script");
-      script.id = scriptId;
-      script.src = "/charting_library/charting_library.js";
-      script.async = true;
-      script.addEventListener("load", init, { once: true });
-      script.addEventListener("error", () => setStatus("error"), { once: true });
-      document.head.appendChild(script);
-    }
+    void loadTradingViewLibrary().then(init).catch((error: unknown) => {
+      fail(error instanceof Error ? error.message : "图表初始化失败，请重试");
+    });
 
     const subscribers = subscribersRef.current;
     return () => {
       cancelled = true;
+      window.clearTimeout(initializationTimer);
+      for (const timer of callbacks) window.clearTimeout(timer);
+      for (const request of requests) request.abort();
       subscribers.clear();
       widgetRef.current?.remove();
       widgetRef.current = null;
     };
-  }, [getBarsForInterval]);
+  }, [getBarsForInterval, loadAttempt]);
 
   useEffect(() => {
     if (status !== "ready" || !widgetRef.current) return;
@@ -303,8 +348,17 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
   return (
     <div className="chart-shell">
       <div ref={containerRef} className="tradingview-container" />
-      {status === "loading" && <div className="chart-state">正在加载 TradingView…</div>}
-      {status === "error" && <div className="chart-state chart-state-error">TradingView 加载失败，请刷新页面</div>}
+      {status === "loading" && <div className="chart-state" role="status">{statusMessage}</div>}
+      {status === "error" && <div className="chart-state chart-state-error" role="alert">
+        <div className="chart-error-content">
+          <span>{statusMessage}</span>
+          <button type="button" className="ui-button ui-button-outline ui-button-sm" onClick={() => {
+            setStatus("loading");
+            setStatusMessage("正在加载 TradingView 脚本…");
+            setLoadAttempt((attempt) => attempt + 1);
+          }}>重新加载图表</button>
+        </div>
+      </div>}
     </div>
   );
 }
