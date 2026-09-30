@@ -22,6 +22,8 @@ module.exports = {
       node_args: "--env-file=.env.production",
       env: { NODE_ENV: "production" },
       instances: 1,
+      // Watcher 维护一个 WebSocket 和单一 JSON 写入者，不能使用 cluster。
+      exec_mode: "fork",
       autorestart: true,
       restart_delay: 5000,
       kill_timeout: 30000,
