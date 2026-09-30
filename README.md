@@ -8,7 +8,8 @@
 - app/page.tsx：页面布局和组件组合。
 - hooks/use-market-dashboard.ts：行情状态、SSE/备用轮询、周期偏好、交易分页。
 - components/market/pair-summary.tsx：交易对信息、价格、储备和统计。
-- components/market/transactions-panel.tsx：交易筛选、复制和触底加载。
+- components/market/transactions-panel.tsx：交易筛选、六列表格和触底加载。
+- components/market/transaction-row.tsx：单笔交易展示、交易详情和逐行复制状态。
 - components/tradingview-chart.tsx：TradingView 初始化、历史数据源及实时订阅。
 - lib/market-client.ts：前端 HTTP 与 SSE 请求封装。
 - utils/market.ts：格式化、剪贴板、行情合并和连续 K 线展示。
@@ -152,6 +153,12 @@ Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网
 
 浏览器 SSE 失败时退回每 10 秒请求快照，重连后恢复 SSE。历史分页保留已加载内容，失败后点击刷新可重试。
 服务端同一进程一秒内共享 JSON 读取结果，避免每个 SSE 客户端重复解析大文件。
+
+交易列表的买卖记录同时显示 HUGE 成交数量、成交均价（NFX/HUGE）和成交 NFX 总额。
+均价为该笔 Swap 的 NFX 数量 ÷ HUGE 数量；总额直接使用链上事件的 `quoteAmount`，不从四舍五入后的显示价格反算。
+添加／移除流动性记录在成交量列显示两种代币数量，成交均价和成交额显示 `—`，避免把流动性操作误标为成交。
+交易列表采用六列表格：时间、类型、成交均价、成交量、成交额、交易者。买入绿色、卖出红色、流动性蓝色，表头固定、行背景交替。
+移动端保留全部列并支持列表内部横向滑动，时间点击查看交易详情、交易者地址点击复制；复制成功状态只影响对应的一条记录。
 
 ## K 线口径和当前限制
 
