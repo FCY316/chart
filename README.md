@@ -8,8 +8,11 @@
 - app/page.tsx：页面布局和组件组合。
 - hooks/use-market-dashboard.ts：行情状态、SSE/备用轮询、周期偏好、交易分页。
 - components/market/pair-summary.tsx：交易对信息、价格、储备和统计。
+- components/market/market-header.tsx：页面顶栏、实时连接状态和地址格式开关。
 - components/market/transactions-panel.tsx：交易筛选、六列表格和触底加载。
 - components/market/transaction-row.tsx：单笔交易展示、交易详情和逐行复制状态。
+- hooks/use-address-convert.ts：交易者地址格式切换和本地偏好保存。
+- utils/address.ts：基于 ethers 和 Bech32 的 `0x ↔ hg` 转换、校验和异常回退。
 - components/tradingview-chart.tsx：TradingView 初始化、历史数据源及实时订阅。
 - lib/market-client.ts：前端 HTTP 与 SSE 请求封装。
 - utils/market.ts：格式化、剪贴板、行情合并和连续 K 线展示。
@@ -159,6 +162,10 @@ Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网
 添加／移除流动性记录在成交量列显示两种代币数量，成交均价和成交额显示 `—`，避免把流动性操作误标为成交。
 交易列表采用六列表格：时间、类型、成交均价、成交量、成交额、交易者。买入绿色、卖出红色、流动性蓝色，表头固定、行背景交替。
 移动端保留全部列并支持列表内部横向滑动，时间点击查看交易详情、交易者地址点击复制；复制成功状态只影响对应的一条记录。
+页面顶部 header 提供 `0x / hg` 开关，默认 `hg`，统一控制交易列表地址显示和复制格式。
+选择保存在浏览器 `localStorage`（`chart-transaction-address-type`），刷新或关闭后再打开仍保留；更换浏览器／设备或清除网站数据后恢复默认。无痕模式或存储不可用时仅在当前页面生效。
+复制的是当前格式的完整地址。
+该功能沿用 Swap 项目的 `hg` Bech32 编码方式（20 字节账户地址）。只转换交易者的展示／复制，不修改 API、扫块和 `market.json` 中的原始地址，LP 地址也保持不变。
 
 ## K 线口径和当前限制
 

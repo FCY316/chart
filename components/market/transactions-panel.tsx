@@ -4,11 +4,12 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TransactionRow } from "@/components/market/transaction-row";
 import type { useMarketDashboard, TransactionFilter } from "@/hooks/use-market-dashboard";
+import type { AddressType } from "@/utils/address";
 
 const FILTERS: Array<[TransactionFilter, string]> = [["all", "全部"], ["swaps", "买卖"], ["liquidity", "流动性"]];
 
 /** 表格与加载标记共用一个滚动容器，横向滑动不改变原有触底分页逻辑。 */
-export function TransactionsPanel({ model }: { model: ReturnType<typeof useMarketDashboard> }) {
+export function TransactionsPanel({ model, addressType }: { model: ReturnType<typeof useMarketDashboard>; addressType: AddressType }) {
   const { fetchMarket, refreshing, transactionFilter, setTransactionFilter, setVisibleCount, listRef, visibleTransactions, markAddressCopied, copiedTarget, explorerUrl, visibleCount, transactions, transactionHasMore, loadMoreRef, transactionLoading } = model;
   return (
     <Card className="transactions-card">
@@ -34,7 +35,7 @@ export function TransactionsPanel({ model }: { model: ReturnType<typeof useMarke
           </thead>
           <tbody>
             {visibleTransactions.map((transaction) => (
-              <TransactionRow key={`${transaction.tx}-${transaction.logIndex}-${transaction.side}`} transaction={transaction} explorerUrl={explorerUrl} copiedTarget={copiedTarget} onCopy={markAddressCopied} />
+              <TransactionRow key={`${transaction.tx}-${transaction.logIndex}-${transaction.side}`} transaction={transaction} explorerUrl={explorerUrl} copiedTarget={copiedTarget} addressType={addressType} onCopy={markAddressCopied} />
             ))}
             {visibleTransactions.length === 0 && <tr><td colSpan={6} className="transaction-empty"><span>暂无交易记录</span></td></tr>}
           </tbody>

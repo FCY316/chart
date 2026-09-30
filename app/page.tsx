@@ -1,34 +1,24 @@
 "use client";
 
-import { Activity, BarChart3, ExternalLink, LoaderCircle, Radio } from "lucide-react";
+import { Activity, ExternalLink, LoaderCircle } from "lucide-react";
 import { TradingViewChart } from "@/components/tradingview-chart";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { TransactionsPanel } from "@/components/market/transactions-panel";
 import { PairSummary } from "@/components/market/pair-summary";
+import { MarketHeader } from "@/components/market/market-header";
 import { useMarketDashboard, intervals } from "@/hooks/use-market-dashboard";
+import { useAddressConvert } from "@/hooks/use-address-convert";
 
 /** 首页仅编排行情组件；订阅与分页逻辑位于 hook。 */
 export default function Home() {
   const model = useMarketDashboard();
+  const { addressType, changeAddressType } = useAddressConvert();
   const { market, streamStatus, error, fetchMarket, activeInterval, setActiveInterval, price, explorerUrl } = model;
 
   return (
     <main className="market-app">
-      <header className="topbar page-width">
-        <div className="brand-lockup">
-          <div className="brand-mark"><BarChart3 size={17} /></div>
-          <div>
-            <p className="brand-name">chart</p>
-            <p className="brand-subtitle">MARKET TERMINAL</p>
-          </div>
-        </div>
-        <div className="topbar-actions">
-          <Badge className={`live-badge stream-${streamStatus}`}><span className="live-dot" />{streamStatus === "connected" ? "SSE 已连接" : streamStatus === "fallback" ? "轮询备用" : "SSE 连接中"}</Badge>
-          <span className="network-chip"><Radio size={13} /> Interstellar</span>
-        </div>
-      </header>
+      <MarketHeader streamStatus={streamStatus} addressType={addressType} onAddressTypeChange={changeAddressType} />
 
       <div className="page-width page-content">
         {error && <div className="error-banner">{error}<Button variant="ghost" size="sm" onClick={() => void fetchMarket(true)}>重试</Button></div>}
@@ -47,7 +37,7 @@ export default function Home() {
               <CardContent className="chart-content"><TradingViewChart candlesByInterval={market.candlesByInterval ?? {}} interval={activeInterval} currentPrice={price} updatedAt={market.metadata.updatedAt} /></CardContent>
             </Card>
             <PairSummary model={model} />
-            <TransactionsPanel model={model} />
+            <TransactionsPanel model={model} addressType={addressType} />
             <footer className="page-footer"><span>数据源：InterstellarChain RPC</span><span>区块 #{market.history?.lastBlock ?? market.pool.lastBlock}</span></footer>
           </>
         )}

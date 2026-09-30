@@ -2,11 +2,13 @@
 
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { formatEventTime, formatNumber, formatPrice, maskAddress, type MarketEvent } from "@/utils/market";
+import { convertAddress, type AddressType } from "@/utils/address";
 
 type TransactionRowProps = {
   transaction: MarketEvent;
   explorerUrl: string;
   copiedTarget: string | null;
+  addressType: AddressType;
   onCopy: (address: string, target: string) => Promise<void>;
 };
 
@@ -19,10 +21,12 @@ const SIDE_LABELS: Record<MarketEvent["side"], string> = {
 };
 
 /** 单笔交易独立成行：成交价与总额分列，复制状态按事件而非钱包区分。 */
-export function TransactionRow({ transaction, explorerUrl, copiedTarget, onCopy }: TransactionRowProps) {
+export function TransactionRow({ transaction, explorerUrl, copiedTarget, addressType, onCopy }: TransactionRowProps) {
   const isLiquidity = transaction.side === "AddLiquidity" || transaction.side === "RemoveLiquidity";
   const tone = isLiquidity ? "liquidity" : transaction.side === "Buy" ? "buy" : transaction.side === "Sell" ? "sell" : "swap";
-  const copyTarget = `transaction-${transaction.tx}-${transaction.logIndex}-${transaction.side}`;
+  const walletAddress = convertAddress(transaction.wallet, addressType);
+  // 包含展示格式，切换格式后不会沿用另一种地址的“复制成功”状态。
+  const copyTarget = `transaction-${transaction.tx}-${transaction.logIndex}-${transaction.side}-${addressType}`;
   const isCopied = copiedTarget === copyTarget;
   const fullTime = formatEventTime(transaction.time, true);
 
@@ -52,8 +56,8 @@ export function TransactionRow({ transaction, explorerUrl, copiedTarget, onCopy 
       </td>
       <td>
         {transaction.wallet ? (
-          <button type="button" className={`transaction-wallet${isCopied ? " is-copied" : ""}`} onClick={() => void onCopy(transaction.wallet, copyTarget)} title={transaction.wallet} aria-label={isCopied ? "地址已复制" : `复制交易者地址 ${transaction.wallet}`}>
-            {maskAddress(transaction.wallet)}
+          <button type="button" className={`transaction-wallet${isCopied ? " is-copied" : ""}`} onClick={() => void onCopy(walletAddress, copyTarget)} title={walletAddress} aria-label={isCopied ? "地址已复制" : `复制交易者地址 ${walletAddress}`}>
+            {maskAddress(walletAddress)}
             {isCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
           </button>
         ) : <span className="transaction-unknown">未知</span>}
