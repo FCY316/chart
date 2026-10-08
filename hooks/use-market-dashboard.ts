@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMarketSnapshot, fetchTransactionPage, subscribeMarketStream } from "@/lib/market-client";
 import type { MarketSnapshot } from "@/lib/market";
+import { observeTransactionPagination } from "@/utils/transaction-pagination";
 import { copyAddress as copyAddressToClipboard, getMarketEvents, getPoolPrice, mergeMarketStreamUpdate, type MarketEvent, type MarketInterval } from "@/utils/market";
 export type TransactionFilter = "all" | "swaps" | "liquidity";
 type StreamStatus = "connecting" | "connected" | "fallback";
@@ -204,16 +205,13 @@ export function useMarketDashboard() {
     const root = listRef.current;
     const sentinel = loadMoreRef.current;
     if (!root || !sentinel) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) return;
+    return observeTransactionPagination(root, sentinel, () => {
       if (visibleCount < transactions.length) {
         setVisibleCount((count) => Math.min(count + 20, transactions.length));
       } else {
         void loadOlderTransactions();
       }
-    }, { root, rootMargin: "120px 0px" });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    });
   }, [loadOlderTransactions, transactionHasMore, transactions.length, visibleCount, refreshing]);
 
   return { market, activeInterval, setActiveInterval, transactionFilter, setTransactionFilter, visibleCount, setVisibleCount, refreshing, error, copiedTarget, streamStatus, transactionLoading, listRef, loadMoreRef, fetchMarket, transactions, visibleTransactions, reserves, price, change, transactionHasMore, explorerUrl, markAddressCopied };

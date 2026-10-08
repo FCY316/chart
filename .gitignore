@@ -44,3 +44,4 @@ next-env.d.ts
 # 运行时数据单独备份，不随源码发布。
 /data/*.json
 /data/*.tmp
+/data/*.lock

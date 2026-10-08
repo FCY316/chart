@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchCandlePage } from "@/lib/market-client";
 import { loadTradingViewLibrary } from "@/utils/tradingview-loader";
+import { CandleOhlc } from "@/components/market/candle-ohlc";
 import type { Candle } from "@/lib/market";
 import { addCurrentPriceCandle, candleTimestamp, type MarketInterval } from "@/utils/market";
 
@@ -295,6 +296,9 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
             ? ["iframe_loading_compatibility_mode"] : []),
         ],
         disabled_features: [
+          // 纵向触摸交给页面滚动；该开关仅影响触摸，不影响 PC 鼠标拖动。
+          // 保留默认的横向拖图和双指缩放，不用遮罩盖住图表。
+          "vert_touch_drag_scroll",
           "header_symbol_search",
           "header_resolutions",
           "timeframes_toolbar",
@@ -305,6 +309,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
           "popup_hints",
         ],
         overrides: {
+          "paneProperties.legendProperties.showSeriesOHLC": true,
           "paneProperties.background": "#0b1118",
           "paneProperties.backgroundType": "solid",
           "scalesProperties.textColor": "#8290a3",
@@ -346,19 +351,22 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
   }, [interval, status]);
 
   return (
-    <div className="chart-shell">
-      <div ref={containerRef} className="tradingview-container" />
-      {status === "loading" && <div className="chart-state" role="status">{statusMessage}</div>}
-      {status === "error" && <div className="chart-state chart-state-error" role="alert">
-        <div className="chart-error-content">
-          <span>{statusMessage}</span>
-          <button type="button" className="ui-button ui-button-outline ui-button-sm" onClick={() => {
-            setStatus("loading");
-            setStatusMessage("正在加载 TradingView 脚本…");
-            setLoadAttempt((attempt) => attempt + 1);
-          }}>重新加载图表</button>
-        </div>
-      </div>}
+    <div>
+      <CandleOhlc candles={candlesByInterval[interval] ?? []} interval={interval} currentPrice={currentPrice} updatedAt={updatedAt} />
+      <div className="chart-shell">
+        <div ref={containerRef} className="tradingview-container" />
+        {status === "loading" && <div className="chart-state" role="status">{statusMessage}</div>}
+        {status === "error" && <div className="chart-state chart-state-error" role="alert">
+          <div className="chart-error-content">
+            <span>{statusMessage}</span>
+            <button type="button" className="ui-button ui-button-outline ui-button-sm" onClick={() => {
+              setStatus("loading");
+              setStatusMessage("正在加载 TradingView 脚本…");
+              setLoadAttempt((attempt) => attempt + 1);
+            }}>重新加载图表</button>
+          </div>
+        </div>}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,7 @@
 - components/tradingview-chart.tsx：TradingView 初始化、历史数据源及实时订阅。
 - lib/market-client.ts：前端 HTTP 与 SSE 请求封装。
 - utils/market.ts：格式化、剪贴板、行情合并和连续 K 线展示。
+- utils/transaction-pagination.ts：手机按页面视口、PC 按列表容器触底加载，支持屏幕旋转。
 - utils/tradingview-loader.ts：共享图表脚本加载，下载超时和失败重试。
 - lib/market.ts：共享类型，不导入历史 JSON。
 - lib/market-reader.ts：服务端运行时读取与一秒共享缓存。
@@ -23,10 +24,13 @@
 - lib/market/config.mjs：链、合约、RPC 和环境配置。
 - lib/market/providers.mjs：RPC、固定区块储备读取、分段日志查询。
 - lib/market/events.mjs：Swap/Mint/Burn/Sync 解析。
+- lib/market/wallets.mjs：按交易哈希查询 `transaction.from`，去重、限并发、失败重试。
+- lib/market/wallet-backfill.mjs：只补齐历史地址，备份及文件变化检查。
+- lib/market/writer-lock.mjs：监听、重建、补齐共用的单写者锁。
 - lib/market/aggregation.mjs：K 线和指标聚合。
 - lib/market/storage.mjs：持久化及临时文件原子替换。
 - lib/market/service.mjs：追块、实时监听、重连与历史合并。
-- scripts/：监听器和手动全量同步的命令行入口。
+- scripts/：监听器、手动全量同步和历史交易地址补齐的命令行入口。
 - deploy/：PM2 进程配置和 Nginx 示例。
 
 组件和关键的数据一致性处理均有注释。UI 使用本地 shadcn 风格组件与 lucide-react；链上访问使用 ethers。
@@ -80,6 +84,11 @@ WebSocket 自动退避重连，HTTP 每 30 秒检查区块作兜底。历史不�
 market:sync:dev / market:sync:test / market:sync:prod 会从起点全量重建文件。
 仅在停掉对应 watcher 并备份后执行，不要让 sync 与 watcher 同时写同一文件。
 
+买卖和加减流动性的交易者统一取交易本身的 `from`，不是 Pair 事件的 `sender` 或 `to`。
+一个交易哈希只查询一次，同时最多查询 4 笔，失败最多尝试 3 次。地址查询失败时不写本批次、不推进扫块断点，下一次区块检查重新尝试。
+`sender` 和 `recipient` 保留池子事件原始信息；`wallet` / `transactionFrom` 表示交易发起地址，`walletSource` 为 `transaction.from`。
+通过智能钱包或中继发出的交易，`from` 是链上交易发起者，不保证等于最终受益人或智能钱包背后的用户。
+
 ## Linux 生产部署
 
 部署模型为常驻 Next.js Web + 单个常驻行情 Worker + 可持久化磁盘。
@@ -127,6 +136,44 @@ pm2 restart deploy/ecosystem.config.cjs --update-env
 
 NEXT_PUBLIC_* 是构建时变量，修改后必须重新构建。
 
+## 已上线版本修复历史交易地址
+
+**保留线上原有 market.json，不用上传本地 JSON，不用全量重新扫块。**
+修改解析逻辑只影响新记录；旧记录必须在对应环境执行一次地址补齐。仅重启 watcher 不会自动修复旧地址。
+
+将本次代码提交并推送到 Git 后，在服务器项目目录执行以下第一组命令。安装、构建失败时先解决错误，不要继续后面的步骤：
+
+~~~bash
+cd ~/chart
+git pull
+npm ci
+npm run build
+pm2 stop chart-watch
+npm run market:wallets:prod
+~~~
+
+补齐命令读取 `.env.production` 中的 `MARKET_DATA_FILE`，自动在原文件旁生成 `market.json.wallet-backup-时间-随机标识.json`，并打印完整备份路径。
+然后按已有交易哈希查询发起地址，补齐 `history.events` 及首页 `transactions`。重复运行会跳过已补齐的记录。
+不会删除事件、不改 K 线／价格／成交金额，也不会改变 `history.lastBlock`、区块时间或事件顺序。旧的展示地址保存为 `legacyWallet`。
+查询中途失败不覆盖原文件；不要删除 JSON 或改用 `market:sync:prod`，保留错误输出和备份排查。
+
+**看到“完成”或“所有交易地址已补齐”后**，再执行第二组命令：
+
+~~~bash
+pm2 restart chart-web --update-env
+pm2 restart chart-watch --update-env
+pm2 save
+pm2 logs chart-watch --lines 30 --nostream
+~~~
+
+Web 可以在补齐期间继续提供旧快照，但暂停监听期间行情暂不更新。监听恢复后从原断点追到最新区块，补上暂停期间的交易。
+浏览器重新加载页面以清除页面内已加载的旧交易记录，检查交易者地址与浏览器交易详情的 `From` 一致。
+本地开发／测试分别用 `npm run market:wallets:dev` / `npm run market:wallets:test`，也必须先停对应 watcher。
+
+新版写入命令共用 `MARKET_DATA_FILE + .lock` 锁，避免同时写同一文件；正常停止会释放。
+若被 `SIGKILL` 等强制结束，锁可能残留。**先确认该文件对应的所有 watcher／sync／wallets 命令均已停止**，再把错误信息中指出的那个锁文件移到备份位置；不能删除行情 JSON，也不要在进程还运行时移走锁。
+旧版本进程不认识这个锁，因此升级时仍必须显式执行 `pm2 stop chart-watch`，补齐还会检查原文件是否在查询期间被改动。
+
 ## JSON 能不能删除？
 
 **不需要把本地 JSON 上传到服务器，但已运行服务器上的唯一历史文件不能随意删除。**
@@ -160,8 +207,9 @@ Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网
 交易列表的买卖记录同时显示 HUGE 成交数量、成交均价（NFX/HUGE）和成交 NFX 总额。
 均价为该笔 Swap 的 NFX 数量 ÷ HUGE 数量；总额直接使用链上事件的 `quoteAmount`，不从四舍五入后的显示价格反算。
 添加／移除流动性记录在成交量列显示两种代币数量，成交均价和成交额显示 `—`，避免把流动性操作误标为成交。
-交易列表采用六列表格：时间、类型、成交均价、成交量、成交额、交易者。买入绿色、卖出红色、流动性蓝色，表头固定、行背景交替。
+交易列表采用六列表格：时间、类型、成交均价、成交量、成交额、交易者。买入绿色、卖出红色、流动性蓝色，PC 表头固定、行背景交替。
 移动端保留全部列并支持列表内部横向滑动，时间点击查看交易详情、交易者地址点击复制；复制成功状态只影响对应的一条记录。
+移动端交易列表不再限制纵向高度：手指从列表内上下滑动时滚动整个页面，页面接近列表底部时自动加载更早记录；PC 保留列表内部滚动。
 页面顶部 header 提供 `0x / hg` 开关，默认 `hg`，统一控制交易列表地址显示和复制格式。
 选择保存在浏览器 `localStorage`（`chart-transaction-address-type`），刷新或关闭后再打开仍保留；更换浏览器／设备或清除网站数据后恢复默认。无痕模式或存储不可用时仅在当前页面生效。
 复制的是当前格式的完整地址。
@@ -173,8 +221,14 @@ Web 服务只读。原 POST /api/market 已移除（返回 405），避免公网
 这与“第一笔成交价作为开盘价”口径不同，原始交易和 JSON 不被前端改写。
 当前价格使用池子储备 NFX/HUGE；最新柱收盘价与价格卡片统一。TradingView 属性和顶部周期选择在浏览器本地保存，不代表完整行情已离线保存。
 
+手机图表上方额外显示“最新 K 线”的开、高、低、收，随顶部周期选择和 SSE 行情更新，单位为 NFX/HUGE，显示精度与图表价格轴一致（最多两位小数）。数值使用同一补柱和池子价格逻辑，不改写 JSON。该栏始终表示最新柱，不随十字光标移动；长按历史蜡烛可在 TradingView 自带图例中查看那根柱的数据。
+移动端默认收起 OHLC 的行为见 [TradingView 移动端说明](https://www.tradingview.com/charting-library-docs/latest/mobile_specifics/)。PC 保持原布局，图表高度和滚动设置不变。
+
 移动浏览器使用 TradingView 的 `iframe_loading_compatibility_mode`，以 `about:blank` 替代默认的 `blob:` iframe；所有数据源回调异步执行。脚本下载、K 线分页请求设置 25 秒超时，图表初始化设置 45 秒超时。失败时图表区域会显示具体原因和“重新加载图表”按钮，无需重载整个页面。
 该模式与异步回调的说明见 [TradingView 故障排查](https://www.tradingview.com/charting-library-docs/latest/troubleshooting/) 和 [Datafeed API](https://www.tradingview.com/charting-library-docs/latest/connecting_data/datafeed-api/)。
+
+K 线禁用 `vert_touch_drag_scroll`，普通纵向触摸交给页面滚动；横向拖动历史 K 线、双指缩放及 PC 鼠标操作仍保留。长按进入十字光标等图表交互时可能仍由图表处理，轻点退出后恢复普通滑动。
+对应设置见 [TradingView 触摸滚动配置](https://www.tradingview.com/charting-library-docs/latest/customization/Featuresets/#vert_touch_drag_scroll)。
 
 已知限制：历史事件时间目前按区块采样估算，尚未逐个读取真实区块时间；极短周期可能有时间桶偏差。当前监听器没有链重组回滚机制。精确历史分析或正式扩大使用前应补齐这些能力。
 SSE 只带最近事件，极长断线或短时大量交易仍需通过历史分页读取完整记录。
@@ -184,5 +238,7 @@ SSE 只带最近事件，极长断线或短时大量交易仍需通过历史分�
 ~~~bash
 npx tsc --noEmit
 npm run lint
+npm run test:market
+npm run test:ui
 npm run build
 ~~~
