@@ -3,7 +3,7 @@
 移动端优先的 HUGE / NFX 行情页：TradingView K 线、池子储备、涨跌幅和实时交易列表。
 价格为 **1 HUGE 等于多少 NFX**；HUGE 对应链上的 WHUGE。没有 USD 价格，priceUsd 为 null。
 
-项目 Logo 为透明 PNG：`public/brand/chart-logo.png` 是原始高清文件，顶栏通过 Next Image 按显示尺寸优化加载；`app/icon.png` 是同一标志的 64×64 标签页图标，由 Next.js 自动生成图标标签，替代默认 favicon。HUGE / NFX 代币 Logo 不受影响。设计说明与生成提示词见 [docs/brand-logo.md](docs/brand-logo.md)。仅更新品牌资源无需重扫链，生产部署重新构建并重启 Web 即可。
+项目 Logo 为透明 PNG：`public/brand/chart-logo.png` 是原始高清文件，顶栏通过 Next Image 按显示尺寸优化加载；`app/favicon.ico` 是同一标志的传统标签页图标，包含 16/32/48/64 像素四个尺寸，由 Next.js 自动生成图标标签并提供 `/favicon.ico`。不再保留 `app/icon.png`，避免浏览器同时选择不同图标。HUGE / NFX 代币 Logo 不受影响。设计说明与生成提示词见 [docs/brand-logo.md](docs/brand-logo.md)。仅更新品牌资源无需重扫链，生产部署重新构建并重启 Web 即可；浏览器若仍显示旧图标，可用无痕窗口验证或清理站点缓存。
 
 ## 项目结构与职责
 

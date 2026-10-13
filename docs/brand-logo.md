@@ -3,7 +3,8 @@
 使用内置 imagegen 生成，以 C 字母和上升蜡烛图表示行情终端，薄荷绿 / 蓝色沿用页面配色。没有采用 CLI/API 回退。
 
 - `public/brand/chart-logo.png`：1254×1254 原始 PNG，保留生成图片的透明通道。
-- `app/icon.png`：从同一图片等比例缩小的 64×64 PNG，用于浏览器标签页；只进行尺寸优化，没有重绘。
+- `app/favicon.ico`：真正的 ICO 容器，内嵌同一标志的 16/32/48/64 像素透明 PNG，由高清原图等比例缩小而来，没有重绘。Next.js 自动作为 `/favicon.ico` 提供并写入页面图标标签。
+- 不再使用 `app/icon.png`，避免重复声明标签页图标。页面上的 PNG 文件保持不变。
 - `components/market/market-header.tsx`：固定 31×31 展示，旁边已有 `chart` 文本，因此图片使用空 alt 避免重复朗读。
 - HUGE / NFX 代币图片保持原样，不代表此项目品牌。
 

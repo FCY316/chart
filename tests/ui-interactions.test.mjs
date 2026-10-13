@@ -63,7 +63,7 @@ test("真实 Popover 通过 Portal 打开，说明完整，Esc/外部点击/关�
   assert.match(css, /max-height:\s*var\(--radix-popover-content-available-height\)/);
 });
 
-test("项目 Logo 使用透明 PNG，顶栏尺寸固定且标签页不再使用默认图标", () => {
+test("页面 Logo 保留透明 PNG，标签页使用真正的多尺寸 favicon.ico", () => {
   const { MarketHeader } = loadTypeScript("components/market/market-header.tsx");
   const { container } = render(h(MarketHeader, { streamStatus: "connected", addressType: "hg", onAddressTypeChange: () => {} }));
   const logo = container.querySelector(".brand-mark img");
@@ -72,14 +72,35 @@ test("项目 Logo 使用透明 PNG，顶栏尺寸固定且标签页不再使用�
   assert.equal(logo.getAttribute("width"), "31");
   assert.equal(logo.getAttribute("height"), "31");
   assert.equal(logo.getAttribute("alt"), "", "旁边已有 chart 文本，无需重复朗读标志");
-  for (const file of ["public/brand/chart-logo.png", "app/icon.png"]) {
-    const png = fs.readFileSync(file);
-    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-    assert.equal(png.readUInt32BE(16), png.readUInt32BE(20), "Logo 保持正方形");
-    assert.equal(png[25], 6, "保留 RGBA 透明通道");
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  const master = fs.readFileSync("public/brand/chart-logo.png");
+  assert.deepEqual([...master.subarray(0, 8)], pngSignature);
+  assert.equal(master.readUInt32BE(16), master.readUInt32BE(20));
+  assert.equal(master[25], 6, "页面 PNG 保留 RGBA 透明通道");
+  const ico = fs.readFileSync("app/favicon.ico");
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1, "ICO 文件头，而不是把 PNG 直接改扩展名");
+  assert.equal(ico.readUInt16LE(4), 4);
+  let expectedOffset = 6 + 4 * 16;
+  for (const [index, size] of [16, 32, 48, 64].entries()) {
+    const entry = 6 + index * 16;
+    assert.equal(ico[entry], size);
+    assert.equal(ico[entry + 1], size);
+    assert.equal(ico.readUInt16LE(entry + 4), 1);
+    assert.equal(ico.readUInt16LE(entry + 6), 32);
+    const length = ico.readUInt32LE(entry + 8);
+    const offset = ico.readUInt32LE(entry + 12);
+    assert.equal(offset, expectedOffset);
+    const image = ico.subarray(offset, offset + length);
+    assert.equal(image.length, length);
+    assert.deepEqual([...image.subarray(0, 8)], pngSignature, "ICO 内嵌透明 PNG 图像");
+    assert.equal(image.readUInt32BE(16), size);
+    assert.equal(image.readUInt32BE(20), size);
+    assert.equal(image[25], 6);
+    expectedOffset += length;
   }
-  assert.equal(fs.readFileSync("app/icon.png").readUInt32BE(16), 64);
-  assert.equal(fs.existsSync("app/favicon.ico"), false);
+  assert.equal(expectedOffset, ico.length);
+  assert.equal(fs.existsSync("app/icon.png"), false, "避免同时声明两个标签页图标");
 });
 
 test("地址 ToggleGroup 保留单选、点击已选项不清空、键盘切换与本地持久化", async () => {
