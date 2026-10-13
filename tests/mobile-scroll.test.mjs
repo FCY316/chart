@@ -1,28 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
-import { createRequire } from "node:module";
-import ts from "typescript";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
-const require = createRequire(import.meta.url);
-
-// 仅测试配置与分页观察器，不代替真机手势验证，不运行浏览器自动化。
-function loadTypeScript(file, overrides = {}) {
-  const loadedModule = { exports: {} };
-  const code = ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const localRequire = (name) => {
-    if (overrides[name]) return overrides[name];
-    if (!name.startsWith("@/")) return require(name);
-    const base = path.resolve(name.slice(2));
-    return loadTypeScript([".ts", ".tsx"].map((extension) => base + extension).find((file) => fs.existsSync(file)), overrides);
-  };
-  new Function("require", "module", "exports", code)(localRequire, loadedModule, loadedModule.exports);
-  return loadedModule.exports;
-}
+import { loadTypeScript } from "./helpers/load-typescript.mjs";
 
 test("手机分页按页面视口观察，桌面及旋转屏幕后按正确根节点观察", (t) => {
   const previousWindow = globalThis.window;
@@ -68,6 +49,7 @@ test("实际图表配置仅释放纵向触摸，保留横向拖图、缩放和�
   });
   for (const userAgent of ["iPhone Mobile", "Android Mobile", "Desktop"]) {
     let options;
+    let appliedOverrides;
     let refCount = 0;
     const effects = [];
     const fakeReact = {
@@ -79,9 +61,17 @@ test("实际图表配置仅释放纵向触摸，保留横向拖图、缩放和�
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: { userAgent } });
     globalThis.window = {
       setTimeout: () => 1, clearTimeout: () => {},
+      addEventListener() {}, removeEventListener() {},
+      localStorage: { getItem: () => JSON.stringify({ version: 1, layout: { charts: [{ oldBackground: "#000000" }] } }), setItem() {} },
       TradingView: { widget: class {
         constructor(config) { options = config; }
         onChartReady(callback) { callback(); }
+        applyOverrides(overrides) { appliedOverrides = overrides; }
+        activeChart() { return { getAllStudies: () => [], createStudy: async () => "study" }; }
+        getStudiesList() { return ["Volume", "Moving Average"]; }
+        subscribe() {}
+        unsubscribe() {}
+        save(callback) { callback({ charts: [{}] }); }
         remove() {}
       } },
     };
@@ -90,41 +80,318 @@ test("实际图表配置仅释放纵向触摸，保留横向拖图、缩放和�
       "@/utils/tradingview-loader": { loadTradingViewLibrary: () => Promise.resolve() },
       "@/lib/market-client": { fetchCandlePage: () => { throw new Error("本测试不应请求行情"); } },
     });
-    TradingViewChart({ candlesByInterval: {}, interval: "5m", currentPrice: 1800, updatedAt: "2026-10-08T00:00:00.000Z" });
+    TradingViewChart({ candlesByInterval: {}, interval: "5m", currentPrice: 1800, updatedAt: "2026-10-08T00:00:00.000Z", chainId: 1677, pairAddress: "0xabc" });
     const cleanups = effects.slice(0, 3).map((effect) => effect());
     await Promise.resolve();
     assert.ok(options.disabled_features.includes("vert_touch_drag_scroll"));
     for (const feature of ["horz_touch_drag_scroll", "pinch_scale", "pressed_mouse_move_scroll", "mouse_wheel_scale"]) assert.ok(!options.disabled_features.includes(feature));
-    assert.equal(options.enabled_features.includes("iframe_loading_compatibility_mode"), userAgent !== "Desktop");
+    assert.equal(options.enabled_features.includes("iframe_loading_compatibility_mode"), true);
     assert.equal(options.overrides["paneProperties.legendProperties.showSeriesOHLC"], true);
+    assert.equal(options.overrides["paneProperties.background"], "#0b1118");
+    assert.deepEqual(appliedOverrides, { "paneProperties.background": "#0b1118", "paneProperties.backgroundType": "solid", "scalesProperties.textColor": "#8290a3" });
+    assert.equal(options.saved_data.charts[0].oldBackground, "#000000", "保留用户旧布局，加载后恢复原配色");
+    for (const feature of ["volume_force_overlay", "create_volume_indicator_by_default"]) assert.ok(options.disabled_features.includes(feature));
     for (const cleanup of cleanups) cleanup?.();
   }
 });
 
-test("手机最新柱 OHLC 与图表补柱相同，实时价格和周期切换生效，不改原始数据", () => {
-  const { CandleOhlc } = loadTypeScript("components/market/candle-ohlc.tsx");
-  const candles = [
-    { time: "2026-10-08T00:00:00.000Z", open: 100, high: 115, low: 95, close: 110, volume: 1 },
-    { time: "2026-10-08T00:05:00.000Z", open: 120, high: 123, low: 118, close: 121, volume: 2 },
-  ];
-  const original = JSON.stringify(candles);
-  const props = { candles, interval: "5m", currentPrice: 125.1234, updatedAt: "2026-10-08T00:06:00.000Z" };
-  const values = (html) => [...html.matchAll(/<dd>(.*?)<\/dd>/g)].map((match) => match[1]);
-  const html = renderToStaticMarkup(CandleOhlc(props));
-  assert.match(html, /最新 K 线 · 5m/);
-  assert.match(html, /NFX \/ HUGE/);
-  assert.deepEqual(values(html), ["110", "125.12", "110", "125.12"]);
-  assert.deepEqual(values(renderToStaticMarkup(CandleOhlc({ ...props, currentPrice: 108 }))), ["110", "123", "108", "108"]);
-  assert.deepEqual(values(renderToStaticMarkup(CandleOhlc({ ...props, updatedAt: "2026-10-08T00:11:00.000Z" }))), ["121", "125.12", "121", "125.12"]);
-  const hourly = [{ ...candles[0], open: 90, high: 140, low: 80 }];
-  const hourHtml = renderToStaticMarkup(CandleOhlc({ ...props, candles: hourly, interval: "1h" }));
-  assert.match(hourHtml, /最新 K 线 · 1h/);
-  assert.deepEqual(values(hourHtml), ["90", "140", "80", "125.12"]);
-  assert.deepEqual(values(renderToStaticMarkup(CandleOhlc({ ...props, candles: [] }))), ["—", "—", "—", "—"]);
-  assert.equal(JSON.stringify(candles), original);
+test("原生指标默认 VOL 独立面板、MA 5/10/20；EMA 切换防重复，按池子保存完整参数", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const storage = new Map(), listeners = new Map(), events = new Map();
+  globalThis.window = { setTimeout, clearTimeout,
+    localStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+    addEventListener: (name, callback) => listeners.set(name, callback),
+    removeEventListener: (name) => listeners.delete(name),
+  };
+  const { chartLayoutKey, createChartPreferences, readChartLayout, EMPTY_INDICATORS } = loadTypeScript("utils/tradingview-preferences.ts");
+  const { INDICATORS, INDICATOR_GROUPS } = loadTypeScript("utils/tradingview-indicators.ts");
+  const key = chartLayoutKey(1677, "0xAbC"), other = chartLayoutKey(1677, "0xDEF");
+  assert.equal(key, chartLayoutKey(1677, "0xabc"));
+  assert.notEqual(key, other);
+  let studies = [], serial = 0, state, picker;
+  const chart = {
+    getAllStudies: () => studies,
+    createStudy: async (name, overlay, locked, inputs) => {
+      const id = String(++serial);
+      studies.push({ id, name, overlay, locked, inputs });
+      return id;
+    },
+    removeEntity: (id) => { studies = studies.filter((study) => study.id !== id); },
+    executeActionById: (action) => { picker = action; },
+  };
+  const widget = { activeChart: () => chart, getStudiesList: () => Object.values(INDICATORS).map((item) => item.name),
+    subscribe: (name, callback) => events.set(name, callback),
+    unsubscribe: (name) => events.delete(name),
+    save: (callback) => callback({ charts: [{ studies, paneSizes: [400, 120] }] }),
+  };
+  const controller = createChartPreferences(widget, key, (value) => { state = value; });
+  await controller.initialize(false);
+  assert.deepEqual(studies.map((study) => [study.name, study.overlay, study.inputs.length]), [
+    ["Volume", false, undefined], ["Moving Average", true, 5], ["Moving Average", true, 10], ["Moving Average", true, 20],
+  ]);
+  assert.deepEqual(state, { ...EMPTY_INDICATORS, VOL: true, MA: true, busy: false });
+  await Promise.all([controller.toggle("EMA"), controller.toggle("EMA")]);
+  assert.deepEqual(studies.filter((study) => study.name.includes("Exponential")).map((study) => study.inputs.length), [12, 26]);
+  await controller.toggle("EMA");
+  assert.equal(state.EMA, false);
+  // 每个快捷入口的原生名称、主图/副图位置、重复开关及删除都要正确。
+  for (const group of INDICATOR_GROUPS.filter((group) => !["VOL", "MA"].includes(group))) {
+    await controller.toggle(group);
+    assert.equal(state[group], true);
+    const created = studies.filter((study) => study.name === INDICATORS[group].name);
+    assert.equal(created.length, INDICATORS[group].lengths.length);
+    assert.ok(created.every((study) => study.overlay === INDICATORS[group].overlay));
+    // 原生 UI 使用简称，仍能正确同步快捷按钮并关闭，不能误删相似的其他指标。
+    for (const study of created) study.name = INDICATORS[group].aliases.at(-1);
+    studies.push({ id: "unrelated", name: "Bollinger Bands Width" });
+    events.get("study_event")();
+    assert.equal(state[group], true);
+    await controller.toggle(group);
+    assert.equal(state[group], false);
+    assert.ok(studies.some((study) => study.id === "unrelated"));
+    studies = studies.filter((study) => study.id !== "unrelated");
+  }
+  studies[1].inputs.length = 7;
+  listeners.get("pagehide")();
+  assert.equal(readChartLayout(key).charts[0].studies[1].inputs.length, 7);
+  assert.deepEqual(readChartLayout(key).charts[0].paneSizes, [400, 120]);
+  assert.equal(readChartLayout(other), undefined);
+  controller.more(); assert.equal(picker, "insertIndicator");
+  controller.dispose();
+  assert.equal(events.size, 0); assert.equal(listeners.size, 0);
+
+  // 保存布局即使移除了所有指标也应尊重，不能刷新后强行补回默认项。
+  studies = [];
+  const restored = createChartPreferences(widget, key, () => {});
+  await restored.initialize(true);
+  assert.equal(studies.length, 0);
+  restored.dispose();
+  storage.set(key, "{bad-json"); assert.equal(readChartLayout(key), undefined);
+  storage.set(key, JSON.stringify({ version: 1, layout: { charts: [{}, {}] } })); assert.equal(readChartLayout(key), undefined);
 });
 
-test("手机表格无独立纵向滚动范围，所有六列仍可横向查看", () => {
+test("指标初始化中销毁不会继续创建；浏览器禁止存储不阻断指标使用", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  globalThis.window = { setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {},
+    get localStorage() { throw new Error("storage disabled"); } };
+  const { createChartPreferences, readChartLayout } = loadTypeScript("utils/tradingview-preferences.ts");
+  assert.equal(readChartLayout("key"), undefined);
+  let resolveStudy, calls = 0;
+  const widget = { activeChart: () => ({ getAllStudies: () => [], createStudy: () => { calls++; return new Promise((resolve) => { resolveStudy = resolve; }); } }),
+    getStudiesList: () => ["Volume", "Moving Average"],
+    save: (callback) => callback({ charts: [{}] }), subscribe() {}, unsubscribe() {} };
+  const controller = createChartPreferences(widget, "key", () => {});
+  const initialized = controller.initialize(false);
+  controller.dispose(); resolveStudy("id"); await initialized;
+  assert.equal(calls, 1);
+  const restored = createChartPreferences(widget, "key", () => {});
+  await restored.initialize(true); restored.dispose();
+});
+
+test("iframe 已销毁时偏好 dispose 仍释放定时器/本地监听，逐项取消订阅并可重复调用", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const listeners = new Map(), timers = new Map(), events = new Map(), unsubscribed = [];
+  let savedCallback, writes = 0, publishes = 0;
+  globalThis.window = {
+    setTimeout: (callback) => { timers.set(1, callback); return 1; }, clearTimeout: (id) => timers.delete(id),
+    addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: (name) => listeners.delete(name),
+    localStorage: { setItem: () => { writes++; } },
+  };
+  const { createChartPreferences } = loadTypeScript("utils/tradingview-preferences.ts");
+  const widget = {
+    activeChart: () => ({ getAllStudies: () => [] }), getStudiesList: () => [],
+    subscribe: (name, callback) => events.set(name, callback),
+    unsubscribe: (name) => {
+      assert.equal(listeners.size, 0, "先清除本地 pagehide，不依赖已失效的 iframe API");
+      unsubscribed.push(name);
+      throw new TypeError("Cannot read properties of null (reading 'doWhenApiIsReady')");
+    },
+    save: (callback) => { savedCallback = callback; },
+  };
+  const controller = createChartPreferences(widget, "key", () => { publishes++; });
+  await controller.initialize(true);
+  await controller.initialize(true);
+  assert.equal(events.size, 8);
+  const changed = events.get("study_event");
+  changed();
+  assert.equal(timers.size, 1);
+  const beforeDispose = publishes;
+  assert.doesNotThrow(() => controller.dispose());
+  assert.equal(unsubscribed.length, 8, "一项失败后继续处理剩余订阅");
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+  assert.doesNotThrow(() => controller.dispose());
+  assert.equal(unsubscribed.length, 8, "重复清理不再触碰失效 API");
+  changed(); savedCallback({ charts: [{}] });
+  assert.equal(publishes, beforeDispose);
+  assert.equal(writes, 0, "销毁后迟到的保存回调不写本地设置");
+});
+
+test("偏好初始化订阅中途失败，也能清理已经成功建立的部分订阅", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const removed = [];
+  let registered = 0;
+  globalThis.window = { clearTimeout() {}, removeEventListener() {} };
+  const { createChartPreferences } = loadTypeScript("utils/tradingview-preferences.ts");
+  const controller = createChartPreferences({
+    activeChart: () => ({ getAllStudies: () => [] }), getStudiesList: () => [],
+    subscribe: () => { if (++registered === 3) throw new Error("iframe 已失效"); },
+    unsubscribe: (name) => removed.push(name),
+  }, "key", () => {});
+  await assert.rejects(controller.initialize(true), /iframe 已失效/);
+  assert.doesNotThrow(() => controller.dispose());
+  assert.deepEqual(removed, ["onAutoSaveNeeded", "study"]);
+});
+
+test("实际图表 effect 清理失败仍销毁 widget、清空引用，重试不复用旧实例", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const effects = [], refs = [];
+  let disposed = 0, removed = 0, created = 0;
+  const fakeReact = {
+    useCallback: (callback) => callback, useState: (value) => [value, () => {}],
+    useRef: (value) => { const ref = { current: refs.length === 0 ? {} : value }; refs.push(ref); return ref; },
+    useEffect: (effect) => effects.push(effect),
+  };
+  globalThis.window = {
+    setTimeout: () => 1, clearTimeout() {},
+    TradingView: { widget: class {
+      constructor() { created++; }
+      onChartReady(callback) { callback(); }
+      applyOverrides() {}
+      remove() { removed++; throw new Error("iframe 已移除"); }
+    } },
+  };
+  const preferences = loadTypeScript("utils/tradingview-preferences.ts");
+  const { TradingViewChart } = loadTypeScript("components/tradingview-chart.tsx", {
+    react: fakeReact,
+    "@/utils/tradingview-loader": { loadTradingViewLibrary: () => Promise.resolve() },
+    "@/utils/tradingview-preferences": { ...preferences, readChartLayout: () => undefined,
+      createChartPreferences: () => ({ initialize: async () => {}, dispose: () => { disposed++; throw new Error("API 已销毁"); } }) },
+  });
+  TradingViewChart({ candlesByInterval: {}, interval: "5m", currentPrice: 1800, updatedAt: "2026-10-13T00:00:00Z", chainId: 1677, pairAddress: "0xabc" });
+  for (const attempt of [1, 2]) {
+    const cleanup = effects[2]();
+    await Promise.resolve();
+    assert.equal(created, attempt);
+    assert.ok(refs[1].current);
+    assert.doesNotThrow(cleanup);
+    assert.equal(refs[1].current, null);
+    assert.equal(disposed, attempt);
+    assert.equal(removed, attempt, "偏好清理失败不阻断 widget.remove");
+    assert.doesNotThrow(cleanup);
+    assert.equal(removed, attempt, "旧 effect 不重复销毁实例");
+  }
+});
+
+test("当前库缺少某指标时明确报错，不影响其他指标或阻塞后续操作", async (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  globalThis.window = { setTimeout, clearTimeout, addEventListener() {}, removeEventListener() {} };
+  const { createChartPreferences } = loadTypeScript("utils/tradingview-preferences.ts");
+  let state;
+  const widget = { getStudiesList: () => [], activeChart: () => ({ getAllStudies: () => [], createStudy: () => assert.fail("不应创建不可用的指标") }),
+    save: (callback) => callback({ charts: [{}] }), subscribe() {}, unsubscribe() {} };
+  const controller = createChartPreferences(widget, "key", (value) => { state = value; });
+  await controller.initialize(true);
+  await controller.toggle("MACD");
+  assert.match(state.error, /MACD.*不可用/);
+  assert.equal(state.busy, false); assert.equal(state.MACD, false);
+  controller.dispose();
+});
+
+test("常用指标全部直接展示，横向滑动区域与更多入口分离", () => {
+  const { ChartIndicators } = loadTypeScript("components/market/chart-indicators.tsx");
+  const { TooltipProvider } = loadTypeScript("components/ui/tooltip.tsx");
+  const { EMPTY_INDICATORS } = loadTypeScript("utils/tradingview-preferences.ts");
+  const html = renderToStaticMarkup(createElement(TooltipProvider, null, ChartIndicators({ state: { ...EMPTY_INDICATORS, busy: false }, onToggle() {}, onMore() {} })));
+  for (const name of ["VOL", "MA", "EMA", "BOLL", "MACD", "RSI", "KD", "StochRSI", "CCI", "WR", "ATR", "OBV", "SAR"]) assert.ok(html.includes(`>${name}</button>`));
+  assert.match(html, /常用指标，可横向滑动/);
+  assert.match(html, /不是三线 KDJ/);
+  assert.match(fs.readFileSync("app/globals.css", "utf8"), /\.indicator-options\s*\{[^}]*overflow-x:\s*auto/);
+});
+
+test("交易行八列：时间不是链接，只有 Hash 跳转完整交易地址，块高与缺失状态正确", () => {
+  const { TransactionRow } = loadTypeScript("components/market/transaction-row.tsx");
+  const transaction = { side: "Buy", time: "2026-10-13T03:00:00Z", wallet: `0x${"a".repeat(40)}`,
+    tx: `0x${"b".repeat(64)}`, blockNumber: 749201, logIndex: 1, price: 1800, baseAmount: 2, quoteAmount: 3600 };
+  const props = { transaction, explorerUrl: "https://scan.interstellarchain.org/", copiedTarget: null, addressType: "0x", onCopy: async () => {} };
+  const html = renderToStaticMarkup(TransactionRow(props));
+  assert.equal((html.match(/<td\b/g) ?? []).length, 8);
+  assert.equal((html.match(/<a\b/g) ?? []).length, 1);
+  assert.match(html, /<span class="transaction-time"/);
+  assert.ok(html.includes(`href="https://scan.interstellarchain.org/tx/${transaction.tx}"`));
+  assert.ok(html.includes(`title="${transaction.tx}"`));
+  assert.match(html, /class="transaction-hash"/);
+  assert.match(html, /class="[^"]*transaction-block[^"]*">749201<\/td>/);
+  for (const blockNumber of [undefined, null, NaN, -1, "749201"]) {
+    const missing = renderToStaticMarkup(TransactionRow({ ...props, transaction: { ...transaction, blockNumber } }));
+    assert.match(missing, /class="[^"]*transaction-block[^"]*">—<\/td>/);
+  }
+  const { TransactionsPanel } = loadTypeScript("components/market/transactions-panel.tsx");
+  const model = { transactionFilter: "all", visibleTransactions: [], visibleCount: 20, transactions: [], transactionHasMore: true, listRef: { current: null }, loadMoreRef: { current: null } };
+  const panel = renderToStaticMarkup(TransactionsPanel({ model, addressType: "0x" }));
+  assert.equal((panel.match(/<th\b/g) ?? []).length, 8);
+  assert.equal((panel.match(/colSpan="8"/g) ?? []).length, 2);
+  assert.match(panel, /交易 Hash/); assert.match(panel, /块高/);
+});
+
+test("全屏终端桌面分栏，手机不锁视口并保持页面滚动", () => {
+  const css = fs.readFileSync("app/globals.css", "utf8");
+  assert.match(css, /\.page-width\s*\{\s*width:\s*100%/);
+  assert.match(css, /grid-template-areas:\s*"chart" "pair" "trades" "footer"/);
+  const desktop = css.slice(css.indexOf("@media (min-width: 1024px)"));
+  assert.match(desktop, /height:\s*100dvh/);
+  assert.match(desktop, /grid-template-areas:\s*"chart pair" "trades pair" "footer footer"/);
+  assert.ok(!css.includes("overflow: hidden; height: 100dvh"));
+});
+
+test("恢复原深蓝黑主题与渐变，保留涨跌语义与文字对比度", () => {
+  const css = fs.readFileSync("app/globals.css", "utf8");
+  const variable = (name) => css.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, "i"))?.[1];
+  const palette = { "--background": "#060a0f", "--surface": "#0b1118", "--surface-raised": "#101923", "--line": "#1b2937", "--foreground": "#edf4fb", "--muted-foreground": "#8290a3", "--muted-strong": "#aab7c7" };
+  for (const [name, color] of Object.entries(palette)) assert.equal(variable(name), color);
+  assert.ok(css.includes("radial-gradient("));
+  assert.ok(css.includes("linear-gradient("));
+  assert.match(css, /\.chart-shell\s*\{[^}]*background:\s*var\(--surface\)/);
+  assert.match(css, /\.transaction-table th\s*\{[^}]*background:\s*#151d26/);
+  assert.match(css, /\.transaction-row:nth-child\(even\)\s*\{[^}]*background:\s*#101820/);
+  assert.match(css, /\.transaction-row:hover\s*\{[^}]*background:\s*#18222d/);
+  assert.match(css, /\.transaction-row-buy\s*\{[^}]*--transaction-tone:\s*var\(--green\)/);
+  assert.match(css, /\.transaction-row-sell\s*\{[^}]*--transaction-tone:\s*var\(--red\)/);
+  assert.equal(variable("--green"), "#29cf8f");
+  assert.equal(variable("--red"), "#f26d78");
+  const luminance = (hex) => {
+    const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+      .map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+    return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+  };
+  for (const foreground of ["--foreground", "--muted-foreground", "--muted-strong"]) {
+    for (const background of [variable("--background"), variable("--surface"), variable("--surface-raised"), "#18222d"]) {
+      assert.ok((luminance(variable(foreground)) + .05) / (luminance(background) + .05) >= 4.5, `${foreground} / ${background}`);
+    }
+  }
+  assert.match(fs.readFileSync("app/layout.tsx", "utf8"), /themeColor:\s*"#060a0f"/);
+});
+
+test("图表外不再渲染手机开高低收栏，保留原生图表与指标入口", () => {
+  const { TradingViewChart } = loadTypeScript("components/tradingview-chart.tsx");
+  const { TooltipProvider } = loadTypeScript("components/ui/tooltip.tsx");
+  const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(TradingViewChart, {
+    candlesByInterval: {}, interval: "5m", currentPrice: 1800, updatedAt: "2026-10-08T00:06:00.000Z", chainId: 1677, pairAddress: "0xabc",
+  })));
+  assert.ok(!html.includes("最新 K 线开高低收"));
+  assert.ok(!html.includes("mobile-candle-ohlc"));
+  assert.match(html, /tradingview-container/);
+  assert.match(html, /图表指标/);
+  assert.ok(!fs.readFileSync("app/globals.css", "utf8").includes("candle-ohlc"));
+});
+
+test("手机表格无独立纵向滚动范围，所有八列仍可横向查看", () => {
   const css = fs.readFileSync("app/globals.css", "utf8");
   const mobile = css.slice(css.indexOf("@media (max-width: 759px)"));
   assert.match(mobile, /\.transaction-list\s*\{[^}]*max-height:\s*none/);

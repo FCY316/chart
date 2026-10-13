@@ -1,8 +1,9 @@
-import { getMarketConfig, readPairState } from "@/lib/pancakeswap-v2.mjs";
+import { getMarketConfig } from "@/lib/market/config.mjs";
+import { readPairState } from "@/lib/market/providers.mjs";
 
 /**
  * 兼容旧代码的实时读取函数。
- * 完整历史同步和事件监听请使用 lib/pancakeswap-v2.mjs；这里仅返回当前储备和价格。
+ * 完整历史同步和事件监听使用 lib/market/service.mjs；这里仅返回当前储备和价格。
  */
 export async function getLiveOnchainQuote() {
   const config = getMarketConfig();

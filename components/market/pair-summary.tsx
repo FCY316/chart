@@ -3,6 +3,7 @@ import Image from "next/image";
 import { Check, Copy, Droplets, BarChart3, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatNumber, formatPrice, maskAddress, getMarketEvents } from "@/utils/market";
 import type { useMarketDashboard } from "@/hooks/use-market-dashboard";
 /** 池子身份、现价和统计卡片。 */
@@ -13,7 +14,7 @@ export function PairSummary({ model }: { model: ReturnType<typeof useMarketDashb
 
   return (
     <>
-      <section className="pair-hero mt-4">
+      <section className="pair-hero">
         <div className="pair-heading">
           <div className="token-stack" aria-hidden="true">
             <span className="token-logo token-logo-huge">
@@ -26,18 +27,18 @@ export function PairSummary({ model }: { model: ReturnType<typeof useMarketDashb
           <div className="pair-identity">
             <div className="pair-title-row">
               <h1>{market.metadata.pair}</h1>
-              <Badge>LP</Badge>
+              <Badge variant="outline">LP</Badge>
             </div>
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
-              className="address-button"
+              className="address-button h-auto"
               onClick={() => void markAddressCopied(market.metadata.pairAddress, "lp-address")}
               aria-label="复制 LP 地址"
             >
               <span className="address-label">LP 地址</span>
               <span className="address-value">{maskAddress(market.metadata.pairAddress)}</span>
               {copiedTarget === "lp-address" ? <Check size={13} /> : <Copy size={13} />}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -51,9 +52,13 @@ export function PairSummary({ model }: { model: ReturnType<typeof useMarketDashb
 
       <section className="stats-grid">
         <Card className="stat-card"><Droplets size={16} /><span className="stat-label">池子储备</span><strong>{formatNumber(reserves?.base ?? 0)} HUGE</strong><small>{formatNumber(reserves?.quote ?? 0)} NFX</small></Card>
-        <Card className="stat-card"><BarChart3 size={16} /><span className="stat-label">24H 成交量</span><strong>{formatNumber(market.quote.volume24h ?? 0)} NFX</strong><small>{market.quote.change24h >= 0 ? "较前日上涨" : "较前日下跌"}</small></Card>
+        <Card className="stat-card"><BarChart3 size={16} /><span className="stat-label">24H 成交额</span><strong>{formatNumber(market.quote.volume24h ?? 0)} NFX</strong><small>仅统计买卖</small></Card>
         <Card className="stat-card"><WalletCards size={16} /><span className="stat-label">累计交易</span><strong>{formatNumber(market.history?.totalEvents ?? getMarketEvents(market).length, 0)}</strong><small>全部历史</small></Card>
       </section>
+      <dl className="pair-range" aria-label="24 小时价格范围">
+        <div><dt>24H 最高 <span>NFX</span></dt><dd>{formatPrice(market.quote.high24h)}</dd></div>
+        <div><dt>24H 最低 <span>NFX</span></dt><dd>{formatPrice(market.quote.low24h)}</dd></div>
+      </dl>
     </>
   );
 }

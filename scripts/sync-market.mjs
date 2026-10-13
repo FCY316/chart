@@ -1,6 +1,8 @@
-import { getMarketConfig, syncMarketSnapshot } from "../lib/pancakeswap-v2.mjs";
+import { getMarketConfig } from "../lib/market/config.mjs";
+import { syncMarketSnapshot } from "../lib/market/service.mjs";
+import { runMarketProcess } from "../lib/market/process-lifecycle.mjs";
 
 const config = getMarketConfig();
-const result = await syncMarketSnapshot(config);
-console.log(`[market] synced ${result.eventCount} events from block ${result.fromBlock} to ${result.toBlock}`);
+const result = await runMarketProcess((signal) => syncMarketSnapshot(config, { signal }));
+if (result) console.log(`[market] synced +${result.addedEvents} events from block ${result.fromBlock} to ${result.toBlock}; ${result.eventCount} events retained`);
 

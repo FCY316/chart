@@ -6,9 +6,10 @@ export type MarketStreamUpdate = {
   type: "market:update";
   metadata: { updatedAt: string };
   quote: MarketSnapshot["quote"];
+  metrics?: MarketSnapshot["metrics"];
   pool: Pick<MarketSnapshot["pool"], "lastBlock" | "reserves" | "liquidityQuote">;
   candlesByInterval: Partial<Record<MarketInterval, Candle[]>>;
-  history: { events: MarketEvent[]; lastBlock: number; lastSyncAt: string; totalEvents?: number };
+  history: { events: MarketEvent[]; lastBlock: number; lastSyncAt: string; totalEvents?: number; datasetVersion?: string; revision?: number };
 };
 
 export const MARKET_INTERVAL_SECONDS: Record<MarketInterval, number> = {
@@ -85,7 +86,7 @@ export function getMarketEvents(market: MarketSnapshot): MarketEvent[] {
   if (events.length > 0) {
     return events
       .filter((event) => event.kind !== "sync")
-      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+      .sort((a, b) => Number(b.blockNumber ?? 0) - Number(a.blockNumber ?? 0) || Number(b.logIndex ?? 0) - Number(a.logIndex ?? 0));
   }
   return market.transactions as MarketEvent[];
 }
@@ -98,6 +99,7 @@ function eventKey(event: MarketEvent) {
 export function mergeMarketStreamUpdate(market: MarketSnapshot, update: MarketStreamUpdate): MarketSnapshot {
   // 慢 HTTP 响应不能覆盖先到达的更新区块行情。
   if (update.history.lastBlock < (market.history?.lastBlock ?? 0)) return market;
+  if (update.history.revision !== undefined && market.history?.revision !== undefined && update.history.revision < market.history.revision) return market;
   const events = new Map(((market.history?.events ?? []) as MarketEvent[]).map((event) => [eventKey(event), event]));
   for (const event of update.history.events) events.set(eventKey(event), event);
   const mergedEvents = [...events.values()].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
@@ -116,6 +118,7 @@ export function mergeMarketStreamUpdate(market: MarketSnapshot, update: MarketSt
     ...market,
     metadata: { ...market.metadata, updatedAt: update.metadata.updatedAt },
     quote: update.quote,
+    metrics: update.metrics ?? market.metrics,
     pool: { ...market.pool, ...update.pool },
     candles: candlesByInterval["5m"] ?? market.candles,
     candlesByInterval,
@@ -126,6 +129,8 @@ export function mergeMarketStreamUpdate(market: MarketSnapshot, update: MarketSt
       lastBlock: update.history.lastBlock,
       lastSyncAt: update.history.lastSyncAt,
       totalEvents: update.history.totalEvents ?? market.history?.totalEvents,
+      datasetVersion: update.history.datasetVersion ?? market.history?.datasetVersion,
+      revision: update.history.revision ?? market.history?.revision,
     },
     fetchedAt: update.metadata.updatedAt,
   };

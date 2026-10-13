@@ -1,5 +1,7 @@
-import { readMarket, marketUnavailable } from "@/lib/market-reader";
-import { getCandlePage, parseLimit, DEFAULT_CANDLE_LIMIT, MAX_CANDLE_LIMIT } from "@/lib/market-api";
+import { marketUnavailable } from "@/lib/market-reader";
+import { parseLimit, DEFAULT_CANDLE_LIMIT, MAX_CANDLE_LIMIT } from "@/lib/market-api";
+import { getMarketConfig } from "@/lib/market/config.mjs";
+import { readCandlePage } from "@/lib/market/repository.mjs";
 
 
 export const dynamic = "force-dynamic";
@@ -20,18 +22,13 @@ export async function GET(request: Request) {
     return Response.json({ error: `不支持的 K 线周期: ${interval}` }, { status: 400 });
   }
 
-  const market = await readMarket();
-  if (!market) return marketUnavailable();
-  const result = getCandlePage(market, interval, {
+  const result = await readCandlePage(getMarketConfig(), interval, {
     from: seconds(params.get("from")),
     to: seconds(params.get("to")),
     before: seconds(params.get("before")),
     limit: parseLimit(params.get("limit"), DEFAULT_CANDLE_LIMIT, MAX_CANDLE_LIMIT),
   });
 
-  return Response.json({
-    ...result,
-    updatedAt: market.metadata.updatedAt,
-    lastBlock: market.history?.lastBlock ?? market.pool.lastBlock,
-  });
+  if (!result) return marketUnavailable();
+  return Response.json(result);
 }

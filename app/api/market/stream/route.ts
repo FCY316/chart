@@ -10,6 +10,8 @@ function snapshotSignature(market: MarketSnapshot) {
     market.history?.lastBlock ?? market.pool.lastBlock,
     market.history?.lastSyncAt ?? "",
     market.metadata.updatedAt,
+    market.history?.revision ?? "",
+    market.history?.datasetVersion ?? "initial",
     market.quote.priceQuote ?? market.quote.priceNative ?? "",
     reserves?.base ?? "",
     reserves?.quote ?? "",
@@ -17,7 +19,7 @@ function snapshotSignature(market: MarketSnapshot) {
 }
 
 /**
- * SSE 只发送实时变化，不能重复发送包含全部历史的 market.json。
+ * SSE 只发送实时变化，不能重复发送全部数据库历史。
  * 首次精简快照由 GET /api/market 提供，完整历史通过分页接口获取。
  */
 function toStreamUpdate(market: MarketSnapshot) {
@@ -25,6 +27,7 @@ function toStreamUpdate(market: MarketSnapshot) {
     type: "market:update",
     metadata: { updatedAt: market.metadata.updatedAt },
     quote: market.quote,
+    metrics: market.metrics,
     pool: {
       lastBlock: market.pool.lastBlock,
       reserves: market.pool.reserves,
@@ -35,8 +38,10 @@ function toStreamUpdate(market: MarketSnapshot) {
     ),
     history: {
       // 最近事件用于在线刷新；完整历史使用交易分页接口。
-      events: (market.history?.events ?? []).slice(-25),
-      totalEvents: (market.history?.events ?? []).filter((event) => event.kind !== "sync").length,
+      events: (market.history?.events ?? []).slice(0, 25).reverse(),
+      totalEvents: market.history?.totalEvents ?? 0,
+      revision: market.history?.revision,
+      datasetVersion: market.history?.datasetVersion ?? "initial",
       lastBlock: market.history?.lastBlock ?? market.pool.lastBlock,
       lastSyncAt: market.history?.lastSyncAt ?? market.metadata.updatedAt,
     },
@@ -80,7 +85,7 @@ export async function GET(request: Request) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(toStreamUpdate(market))}\n\n`));
           }
         } catch {
-          // Keep the stream alive; the next tick retries the JSON read.
+          // Keep the stream alive; the next tick retries the database read.
         } finally {
           reading = false;
         }

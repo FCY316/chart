@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchCandlePage } from "@/lib/market-client";
 import { loadTradingViewLibrary } from "@/utils/tradingview-loader";
-import { CandleOhlc } from "@/components/market/candle-ohlc";
+import { Button } from "@/components/ui/button";
+import { ChartIndicators } from "@/components/market/chart-indicators";
+import { chartLayoutKey, createChartPreferences, EMPTY_INDICATORS, readChartLayout, type PreferenceWidget } from "@/utils/tradingview-preferences";
 import type { Candle } from "@/lib/market";
-import { addCurrentPriceCandle, candleTimestamp, type MarketInterval } from "@/utils/market";
+import { addCurrentPriceCandle, candleTimestamp, MARKET_INTERVAL_SECONDS, type MarketInterval } from "@/utils/market";
 
-type TradingViewWidget = {
+type TradingViewWidget = Omit<PreferenceWidget, "activeChart"> & {
   remove: () => void;
   onChartReady: (callback: () => void) => void;
-  activeChart: () => { setResolution: (resolution: string, callback?: () => void) => void };
+  applyOverrides: (overrides: Record<string, unknown>) => void;
+  activeChart: () => ReturnType<PreferenceWidget["activeChart"]> & { setResolution: (resolution: string, callback?: () => void) => void };
 };
 type TradingViewWindow = Window & {
   TradingView?: { widget: new (options: Record<string, unknown>) => TradingViewWidget };
@@ -19,6 +22,11 @@ type Bar = { time: number; open: number; high: number; low: number; close: numbe
 type Subscriber = { resolution: string; callback: (bar: Bar) => void; lastBarTime?: number };
 
 const DISPLAY_PRICE_SCALE = 100;
+const CHART_APPEARANCE = {
+  "paneProperties.background": "#0b1118",
+  "paneProperties.backgroundType": "solid",
+  "scalesProperties.textColor": "#8290a3",
+};
 
 function unixSeconds(value: number) {
   return value > 1_000_000_000_000 ? value / 1_000 : value;
@@ -70,9 +78,11 @@ type TradingViewChartProps = {
   interval: MarketInterval;
   currentPrice: number;
   updatedAt: string;
+  chainId: number;
+  pairAddress: string;
 };
 
-export function TradingViewChart({ candlesByInterval, interval, currentPrice, updatedAt }: TradingViewChartProps) {
+export function TradingViewChart({ candlesByInterval, interval, currentPrice, updatedAt, chainId, pairAddress }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<TradingViewWidget | null>(null);
   const candlesRef = useRef(candlesByInterval);
@@ -83,6 +93,10 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
   const [status, setStatus] = useState("loading");
   const [statusMessage, setStatusMessage] = useState("正在加载 TradingView 脚本…");
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const preferencesRef = useRef<ReturnType<typeof createChartPreferences> | null>(null);
+  const ignoreSavedLayoutRef = useRef(false);
+  const [indicators, setIndicators] = useState(EMPTY_INDICATORS);
+  const layoutKey = chartLayoutKey(chainId, pairAddress);
 
   useEffect(() => {
     intervalRef.current = interval;
@@ -123,6 +137,9 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
     let chartReady = false;
     let phase = "图表初始化";
     let initializationTimer: number | undefined;
+    // 每个 effect 只释放自己创建的资源，旧回调不能清理新挂载的图表。
+    let ownedWidget: TradingViewWidget | null = null;
+    let ownedPreferences: ReturnType<typeof createChartPreferences> | null = null;
     const requests = new Set<AbortController>();
     const callbacks = new Set<number>();
     // 即使已有缓存，回调也必须在另一个宏任务执行；同步回调可能让图表初始化卡住。
@@ -203,6 +220,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         },
         searchSymbols: (_input: string, _exchange: string, _symbolType: string, callback: (symbols: unknown[]) => void) => defer(() => callback([])),
         resolveSymbol: (_name: string, callback: (symbol: Record<string, unknown>) => void) => {
+          phase = "交易对信息初始化";
           defer(() => callback({
             ticker: "HUGE/NFX",
             name: "HUGE / NFX",
@@ -230,25 +248,17 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         getBars: (
           _symbol: Record<string, unknown>,
           resolution: string,
-          period: { from: number; to: number },
+          period: { from: number; to: number; countBack?: number },
           onResult: (bars: Bar[], meta: { noData: boolean }) => void,
           onError: (message: string) => void,
         ) => {
           const key = intervalForResolution(resolution);
-          const from = unixSeconds(period.from);
           const to = unixSeconds(period.to);
-
-          // 首屏行情快照已经携带最近 K 线。优先交给图表绘制，避免移动
-          // WebView 因历史分页请求缓慢而一直停留在 TradingView 加载状态。
-          const cachedBars = getBarsForInterval(key)
-            .filter((bar) => bar.time / 1_000 >= from && bar.time / 1_000 < to);
-          if (cachedBars.length > 0) {
-            defer(() => onResult(cachedBars, { noData: false }));
-            // 更早历史仍在后台加载，供后续拖动和切换周期使用。
-            void fetchBars(key, from, to).catch(() => {});
-            return;
-          }
-
+          // 首屏快照只有最近 120 根，不能把部分缓存当完整历史再补假平盘。
+          // 尊重 countBack，真实读取完请求窗口后再交给图表/指标。
+          const countBack = Math.min(5_000, Math.max(0, period.countBack ?? 0));
+          const from = Math.min(unixSeconds(period.from), to - countBack * MARKET_INTERVAL_SECONDS[key]);
+          phase = "K 线数据加载";
           void fetchBars(key, from, to)
             .then((bars) => {
               defer(() => onResult(bars, { noData: bars.length === 0 }));
@@ -277,6 +287,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         },
       };
 
+      const savedLayout = ignoreSavedLayoutRef.current ? undefined : readChartLayout(layoutKey);
       const widget = new tradingView.widget({
         container: containerRef.current,
         library_path: "/charting_library/",
@@ -287,18 +298,23 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         timezone: "Asia/Shanghai",
         theme: "dark",
         autosize: true,
+        saved_data: savedLayout,
+        auto_save_delay: 1,
         enabled_features: [
           "hide_left_toolbar_by_default",
           "save_chart_properties_to_local_storage",
-          // 库默认用 blob URL 加载 iframe，部分手机 WebView 会拦截。
-          // 官方兼容模式改用 about:blank + document.write，保持同源数据源。
-          ...(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-            ? ["iframe_loading_compatibility_mode"] : []),
+          // 统一使用官方 about:blank 兼容模式，不依赖 UA。
+          // iPad 桌面 UA/内嵌浏览器也可能不含 Mobile，却限制 blob iframe。
+          "iframe_loading_compatibility_mode",
         ],
         disabled_features: [
           // 纵向触摸交给页面滚动；该开关仅影响触摸，不影响 PC 鼠标拖动。
           // 保留默认的横向拖图和双指缩放，不用遮罩盖住图表。
           "vert_touch_drag_scroll",
+          // 显式创建独立 VOL 面板，避免库的自动成交量造成重复或覆盖主图。
+          "create_volume_indicator_by_default",
+          "create_volume_indicator_by_default_once",
+          "volume_force_overlay",
           "header_symbol_search",
           "header_resolutions",
           "timeframes_toolbar",
@@ -310,9 +326,7 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
         ],
         overrides: {
           "paneProperties.legendProperties.showSeriesOHLC": true,
-          "paneProperties.background": "#0b1118",
-          "paneProperties.backgroundType": "solid",
-          "scalesProperties.textColor": "#8290a3",
+          ...CHART_APPEARANCE,
           "mainSeriesProperties.candleStyle.upColor": "#28c98b",
           "mainSeriesProperties.candleStyle.downColor": "#f26d78",
           "mainSeriesProperties.candleStyle.borderUpColor": "#28c98b",
@@ -321,11 +335,21 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
           "mainSeriesProperties.candleStyle.wickDownColor": "#f26d78",
         },
       });
+      ownedWidget = widget;
       widgetRef.current = widget;
       widget.onChartReady(() => {
+        if (cancelled) return;
+        // 保存布局可能带旧配色；仅覆盖背景和刻度文字，不清除指标和画线。
+        widget.applyOverrides(CHART_APPEARANCE);
         chartReady = true;
         window.clearTimeout(initializationTimer);
-        if (!cancelled) setStatus("ready");
+        setStatus("ready");
+        const preferences = createChartPreferences(widget, layoutKey, setIndicators);
+        ownedPreferences = preferences;
+        preferencesRef.current = preferences;
+        void preferences.initialize(Boolean(savedLayout)).catch((error: unknown) => {
+          fail(error instanceof Error ? error.message : "图表指标初始化失败，请重试");
+        });
       });
     };
 
@@ -340,10 +364,17 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
       for (const timer of callbacks) window.clearTimeout(timer);
       for (const request of requests) request.abort();
       subscribers.clear();
-      widgetRef.current?.remove();
-      widgetRef.current = null;
+      const preferences = ownedPreferences, widget = ownedWidget;
+      ownedPreferences = null;
+      ownedWidget = null;
+      if (preferencesRef.current === preferences) preferencesRef.current = null;
+      if (widgetRef.current === widget) widgetRef.current = null;
+      try { preferences?.dispose(); }
+      catch { /* 第三方清理失败不能阻断后续 iframe 销毁。 */ }
+      try { widget?.remove(); }
+      catch { /* iframe 可能已随 Fast Refresh/父节点卸载而销毁。 */ }
     };
-  }, [getBarsForInterval, loadAttempt]);
+  }, [getBarsForInterval, loadAttempt, layoutKey]);
 
   useEffect(() => {
     if (status !== "ready" || !widgetRef.current) return;
@@ -351,19 +382,29 @@ export function TradingViewChart({ candlesByInterval, interval, currentPrice, up
   }, [interval, status]);
 
   return (
-    <div>
-      <CandleOhlc candles={candlesByInterval[interval] ?? []} interval={interval} currentPrice={currentPrice} updatedAt={updatedAt} />
+    <div className="chart-workspace">
+      <ChartIndicators state={status === "ready" ? indicators : { ...indicators, busy: true }} onToggle={(group) => { if (status === "ready") void preferencesRef.current?.toggle(group); }} onMore={() => preferencesRef.current?.more()} />
       <div className="chart-shell">
         <div ref={containerRef} className="tradingview-container" />
         {status === "loading" && <div className="chart-state" role="status">{statusMessage}</div>}
         {status === "error" && <div className="chart-state chart-state-error" role="alert">
           <div className="chart-error-content">
             <span>{statusMessage}</span>
-            <button type="button" className="ui-button ui-button-outline ui-button-sm" onClick={() => {
+            <Button variant="outline" size="sm" onClick={() => {
               setStatus("loading");
               setStatusMessage("正在加载 TradingView 脚本…");
               setLoadAttempt((attempt) => attempt + 1);
-            }}>重新加载图表</button>
+            }}>重新加载图表</Button>
+            <Button variant="ghost" size="sm" title="只清除当前池子在本机保存的指标、画线与面板布局，不删除行情"
+              onClick={() => {
+                // 缓存状态不兼容时提供明确恢复入口，普通重试不会删除用户画线。
+                ignoreSavedLayoutRef.current = true;
+                try { window.localStorage.removeItem(layoutKey); } catch { /* 当前重试仍忽略保存布局。 */ }
+                setIndicators(EMPTY_INDICATORS);
+                setStatus("loading");
+                setStatusMessage("正在恢复默认图表…");
+                setLoadAttempt((attempt) => attempt + 1);
+              }}>清除本机图表设置并重试</Button>
           </div>
         </div>}
       </div>

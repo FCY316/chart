@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMarketSnapshot, fetchTransactionPage, subscribeMarketStream } from "@/lib/market-client";
 import type { MarketSnapshot } from "@/lib/market";
 import { observeTransactionPagination } from "@/utils/transaction-pagination";
-import { copyAddress as copyAddressToClipboard, getMarketEvents, getPoolPrice, mergeMarketStreamUpdate, type MarketEvent, type MarketInterval } from "@/utils/market";
+import { copyAddress as copyAddressToClipboard, getMarketEvents, getPoolPrice, mergeMarketStreamUpdate, type MarketEvent, type MarketInterval, type MarketStreamUpdate } from "@/utils/market";
+import { datasetVersion, isOlderMarket, needsMarketRecovery, recoverMarketGap, snapshotUpdate } from "@/utils/market-recovery";
+import { useMarketHealth } from "@/hooks/use-market-health";
 export type TransactionFilter = "all" | "swaps" | "liquidity";
 type StreamStatus = "connecting" | "connected" | "fallback";
 type PoolReserves = { base: number; quote: number; baseSymbol: string; quoteSymbol: string };
@@ -32,6 +34,9 @@ export const intervals: Array<{ key: MarketInterval; label: string }> = [
 /** 管理行情订阅、周期偏好和历史分页，展示组件不直接请求网络。 */
 export function useMarketDashboard() {
   const [market, setMarket] = useState<MarketSnapshot | null>(null);
+  const marketRef = useRef<MarketSnapshot | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const health = useMarketHealth();
   // Keep the server and first client render identical; localStorage is read
   // once after hydration to avoid a tab mismatch warning.
   const [activeInterval, setActiveInterval] = useState<MarketInterval>("5m");
@@ -51,6 +56,66 @@ export function useMarketDashboard() {
   const snapshotRequestRef = useRef(false);
   const snapshotLoadedRef = useRef(false);
   const failedCursorRef = useRef<string | null>(null);
+  const recoveryNeededRef = useRef(false);
+  const recoveryAbortRef = useRef<AbortController | null>(null);
+  const pendingIncomingRef = useRef<MarketSnapshot | MarketStreamUpdate | null>(null);
+  const drainRef = useRef<Promise<void> | null>(null);
+
+  const commitMarket = useCallback((next: MarketSnapshot) => {
+    marketRef.current = next;
+    snapshotLoadedRef.current = true;
+    setMarket(next);
+  }, []);
+
+  // 一次只补一个窗口，积压的实时包只保留最新包，再用分页补齐中间遗漏。
+  const acceptIncoming = useCallback((incoming: MarketSnapshot | MarketStreamUpdate) => {
+    pendingIncomingRef.current = incoming;
+    if (drainRef.current) return drainRef.current;
+    const operation = (async () => {
+      while (pendingIncomingRef.current) {
+        const packet = pendingIncomingRef.current;
+        pendingIncomingRef.current = null;
+        const signal = recoveryAbortRef.current?.signal;
+        if (!signal || signal.aborted) return;
+        let current = marketRef.current;
+        const isStream = packet.type === "market:update";
+        if (!current || datasetVersion(current) !== datasetVersion(packet)) {
+          if (current && isOlderMarket(current, packet)) continue;
+          const next = isStream ? await fetchMarketSnapshot({ signal }) : packet as MarketSnapshot;
+          if (signal.aborted) return;
+          if (datasetVersion(next) !== datasetVersion(packet)) throw new Error("历史数据正在校正，稍后自动重试");
+          commitMarket(next);
+          setTransactionCursorState(undefined);
+          setTransactionHasMoreState(undefined);
+          failedCursorRef.current = null;
+          setVisibleCount(20);
+          current = next;
+          if (!isStream) continue;
+        }
+        const update = isStream ? packet as MarketStreamUpdate : snapshotUpdate(packet as MarketSnapshot);
+        if (isOlderMarket(current, update)) continue;
+        setRecovering(needsMarketRecovery(current, update));
+        const next = needsMarketRecovery(current, update)
+          ? await recoverMarketGap(current, update, signal)
+          : mergeMarketStreamUpdate(current, update);
+        if (signal.aborted) return;
+        // 补数据期间用户可能翻了历史页，保留这些已加载记录。
+        const events = new Map(((marketRef.current?.history?.events ?? []) as MarketEvent[]).map((event) => [`${event.tx}:${event.logIndex}`, event]));
+        for (const event of (next.history?.events ?? []) as MarketEvent[]) events.set(`${event.tx}:${event.logIndex}`, event);
+        commitMarket({ ...next, history: { ...next.history!, events: [...events.values()] } });
+      }
+      recoveryNeededRef.current = false;
+      setError(null);
+    })();
+    drainRef.current = operation.catch((failure: unknown) => {
+      if (!recoveryAbortRef.current?.signal.aborted) {
+        recoveryNeededRef.current = true;
+        setError(failure instanceof Error ? failure.message : "行情补齐失败，稍后自动重试");
+      }
+      throw failure;
+    }).finally(() => { drainRef.current = null; setRecovering(false); });
+    return drainRef.current;
+  }, [commitMarket]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -75,17 +140,8 @@ export function useMarketDashboard() {
     if (manual) failedCursorRef.current = null;
     if (manual) setRefreshing(true);
     try {
-      const next = await fetchMarketSnapshot();
-      snapshotLoadedRef.current = true;
-      setMarket((current) => {
-        if (!current) return next;
-        const merged = mergeMarketStreamUpdate(current, {
-          type: "market:update", metadata: next.metadata, quote: next.quote,
-          pool: { ...next.pool, liquidityQuote: next.pool.liquidityQuote }, candlesByInterval: next.candlesByInterval ?? {},
-          history: { events: (next.history?.events ?? []) as MarketEvent[], lastBlock: next.history?.lastBlock ?? next.pool.lastBlock, lastSyncAt: next.metadata.updatedAt },
-        });
-        return { ...merged, history: { ...merged.history!, totalEvents: next.history?.totalEvents } };
-      });
+      const next = await fetchMarketSnapshot({ signal: recoveryAbortRef.current?.signal });
+      await acceptIncoming(next);
       setError(null);
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "行情加载失败");
@@ -93,9 +149,10 @@ export function useMarketDashboard() {
       snapshotRequestRef.current = false;
       if (manual) setRefreshing(false);
     }
-  }, []);
+  }, [acceptIncoming]);
 
   useEffect(() => {
+    recoveryAbortRef.current = new AbortController();
     let fallbackTimer: number | undefined;
     const startFallback = () => {
       if (fallbackTimer !== undefined) return;
@@ -113,7 +170,7 @@ export function useMarketDashboard() {
     const initialFetchTimer = window.setTimeout(() => void fetchMarket(), 0);
     // 首次同步可能暂时返回 503，即使 SSE 已连上也要定期补取首屏。
     const recoveryTimer = window.setInterval(() => {
-      if (!snapshotLoadedRef.current) void fetchMarket();
+      if (!snapshotLoadedRef.current || recoveryNeededRef.current) void fetchMarket();
     }, 10_000);
 
     const unsubscribe = subscribeMarketStream({
@@ -124,8 +181,7 @@ export function useMarketDashboard() {
         void fetchMarket();
       },
       onUpdate: (update) => {
-        setMarket((current) => current ? mergeMarketStreamUpdate(current, update) : current);
-        setError(null);
+        void acceptIncoming(update).catch(() => { setStreamStatus("fallback"); startFallback(); });
       },
       onError: () => {
         setStreamStatus("fallback");
@@ -142,8 +198,10 @@ export function useMarketDashboard() {
       window.clearInterval(recoveryTimer);
       unsubscribe();
       stopFallback();
+      recoveryAbortRef.current?.abort();
+      pendingIncomingRef.current = null;
     };
-  }, [fetchMarket]);
+  }, [fetchMarket, acceptIncoming]);
 
   const transactions = useMemo(() => {
     if (!market) return [];
@@ -176,21 +234,21 @@ export function useMarketDashboard() {
     try {
       const payload = await fetchTransactionPage({ limit: 50, cursor: transactionCursor });
       const incoming = payload.items;
-      setMarket((current) => {
-        if (!current) return current;
+      const current = marketRef.current;
+      if (current && (payload.datasetVersion ?? "initial") === datasetVersion(current)) {
         const events = new Map(((current.history?.events ?? []) as MarketEvent[]).map((event) => [`${event.tx}:${event.logIndex ?? ""}`, event]));
         for (const event of incoming) events.set(`${event.tx}:${event.logIndex ?? ""}`, event);
         const mergedEvents = [...events.values()].sort((a, b) => Number(a.blockNumber ?? 0) - Number(b.blockNumber ?? 0) || Number(a.logIndex ?? 0) - Number(b.logIndex ?? 0));
-        return {
+        commitMarket({
           ...current,
           history: {
             ...(current.history ?? { lastBlock: current.pool.lastBlock, lastSyncAt: current.metadata.updatedAt }),
             events: mergedEvents,
           },
-        };
-      });
-      setTransactionCursorState(payload.page.nextCursor);
-      setTransactionHasMoreState(payload.page.hasMore);
+        });
+        setTransactionCursorState(payload.page.nextCursor);
+        setTransactionHasMoreState(payload.page.hasMore);
+      }
     } catch (loadError) {
       // 停留在底部时失败不得立即无限重试；用户点刷新后恢复。
       failedCursorRef.current = transactionCursor;
@@ -199,7 +257,7 @@ export function useMarketDashboard() {
       transactionRequestRef.current = false;
       setTransactionLoading(false);
     }
-  }, [transactionCursor, transactionHasMore, transactionLoading]);
+  }, [transactionCursor, transactionHasMore, transactionLoading, commitMarket]);
 
   useEffect(() => {
     const root = listRef.current;
@@ -214,5 +272,5 @@ export function useMarketDashboard() {
     });
   }, [loadOlderTransactions, transactionHasMore, transactions.length, visibleCount, refreshing]);
 
-  return { market, activeInterval, setActiveInterval, transactionFilter, setTransactionFilter, visibleCount, setVisibleCount, refreshing, error, copiedTarget, streamStatus, transactionLoading, listRef, loadMoreRef, fetchMarket, transactions, visibleTransactions, reserves, price, change, transactionHasMore, explorerUrl, markAddressCopied };
+  return { market, health, recovering, activeInterval, setActiveInterval, transactionFilter, setTransactionFilter, visibleCount, setVisibleCount, refreshing, error, copiedTarget, streamStatus, transactionLoading, listRef, loadMoreRef, fetchMarket, transactions, visibleTransactions, reserves, price, change, transactionHasMore, explorerUrl, markAddressCopied };
 }

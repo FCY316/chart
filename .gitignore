@@ -30,9 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-# .env*
-# !.env.example
+# 公开环境配置（development/test/production/example）随 Git 提交。
+# 本机临时覆盖文件不提交；不要把凭据放进上述公开配置。
+.env.local
+.env.*.local
 
 # vercel
 .vercel
@@ -45,3 +46,5 @@ next-env.d.ts
 /data/*.json
 /data/*.tmp
 /data/*.lock
+/data/*.db*
+/data/*.sqlite*

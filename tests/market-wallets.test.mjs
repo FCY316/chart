@@ -9,13 +9,17 @@ import { parsePairLog } from "../lib/market/events.mjs";
 import { resolveEventWallets } from "../lib/market/wallets.mjs";
 import { backfillMarketWallets } from "../lib/market/wallet-backfill.mjs";
 import { acquireMarketWriterLock } from "../lib/market/writer-lock.mjs";
+import { getMarketConfig } from "../lib/market/config.mjs";
+import { appendMarketBatch } from "../lib/market/indexer-store.mjs";
+import { readMarketSnapshot } from "../lib/market/repository.mjs";
+import { withMarketDatabase } from "../lib/market/database.mjs";
 
 const router = "0x2C8F2A60B72EDaD2eA4445A2714982C927AE10AD";
 const trader = getAddress("0x675d6c9ef24109a5524cf6f8a3c27771149c172a");
 const hash = (index) => `0x${index.toString(16).padStart(64, "0")}`;
 const state = { displayBaseIndex: 0, displayBaseToken: { decimals: 18 }, displayQuoteToken: { decimals: 18 } };
 const unit = 10n ** 18n;
-const event = (index, side = "Buy") => ({ kind: side === "Buy" ? "swap" : "addLiquidity", side, tx: hash(index), logIndex: index, wallet: router, sender: router, baseAmount: 2, quoteAmount: 3600, price: 1800, timestamp: 1000, time: "2026-10-08T00:00:00.000Z" });
+const event = (index, side = "Buy") => ({ kind: side === "Buy" ? "swap" : "addLiquidity", side, tx: hash(index), blockNumber: 10, logIndex: index, wallet: router, sender: router, baseAmount: 2, quoteAmount: 3600, price: 1800, timestamp: 1000, time: new Date(1_000_000).toISOString() });
 
 test("Swap/Mint/Burn 先保留日志信息，再用真实交易 from 填写交易者", async () => {
   const specs = [
@@ -76,18 +80,12 @@ test("RPC 返回 null 会重试，最终失败不得回退为合约地址", asyn
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "chart-wallet-test-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  const config = { dataFile: path.join(directory, "market.json") };
-  const snapshot = {
-    metadata: { updatedAt: "2026-10-08T00:00:00.000Z" },
-    quote: { priceQuote: 1800 }, metrics: [{ label: "量", value: "3600" }],
-    pool: { lastBlock: 99, reserves: { base: 2, quote: 3600 } },
-    candles: [{ open: 1700, high: 1800, low: 1700, close: 1800, volume: 3600 }],
-    candlesByInterval: { "5m": [{ open: 1700, close: 1800 }] },
-    history: { lastBlock: 99, lastSyncAt: "2026-10-08T00:00:00.000Z", events: [event(1), event(2, "AddLiquidity"), { kind: "sync", tx: hash(3) }] },
-    transactions: [event(2, "AddLiquidity"), event(1)],
-  };
-  const original = JSON.stringify(snapshot, null, 2);
-  await fs.writeFile(config.dataFile, original);
+  const config = getMarketConfig({ MARKET_DATA_FILE: path.join(directory, "market.db"), MARKET_START_BLOCK: "1" });
+  const token = { name: "Token", decimals: 18, address: trader };
+  await appendMarketBatch({ blockNumber: 99, price: 1800, factory: router, displayBaseToken: { ...token, symbol: "HUGE" }, displayQuoteToken: { ...token, symbol: "NFX" }, displayBaseReserve: 2, displayQuoteReserve: 3600 },
+    [event(1), event(2, "AddLiquidity"), { ...event(3), kind: "sync" }], config, 1000, { fromBlock: 1 });
+  const snapshot = await readMarketSnapshot(config, { full: true });
+  const original = await readMarketSnapshot(config, { full: true });
   return { config, snapshot, original, directory };
 }
 
@@ -98,8 +96,8 @@ test("历史补齐原子写入、自动精确备份，K 线／价格／金额／
   assert.equal(calls, 2);
   assert.ok(destroyed);
   assert.equal(result.updatedEvents, 2);
-  assert.equal(await fs.readFile(result.backupFile, "utf8"), original);
-  const repaired = JSON.parse(await fs.readFile(config.dataFile, "utf8"));
+  assert.deepEqual(await readMarketSnapshot({ ...config, dataFile: result.backupFile }, { full: true }), original);
+  const repaired = await readMarketSnapshot(config, { full: true });
   for (const field of ["metadata", "quote", "metrics", "pool", "candles", "candlesByInterval"]) assert.deepEqual(repaired[field], snapshot[field]);
   assert.equal(repaired.history.lastBlock, snapshot.history.lastBlock);
   assert.equal(repaired.history.lastSyncAt, snapshot.history.lastSyncAt);
@@ -126,17 +124,18 @@ test("写入锁拒绝与 watcher 并行；补齐失败保留原文件和备份�
     onBackup: (file) => { backup = file; },
     createProvider: () => ({ getTransaction: async () => { throw new Error("节点离线"); }, destroy: async () => {} }),
   }), /读取交易发起地址失败/);
-  assert.equal(await fs.readFile(config.dataFile, "utf8"), original);
-  assert.equal(await fs.readFile(backup, "utf8"), original);
+  assert.deepEqual(await readMarketSnapshot(config, { full: true }), original);
+  assert.deepEqual(await readMarketSnapshot({ ...config, dataFile: backup }, { full: true }), original);
   await assert.rejects(fs.access(`${config.dataFile}.lock`));
 });
 
-test("旧 watcher 在补齐期间修改文件时拒绝覆盖更新的数据", async (t) => {
-  const { config, snapshot } = await fixture(t);
-  const modified = JSON.stringify({ ...snapshot, pool: { ...snapshot.pool, lastBlock: 100 } });
+test("非协作写入者在补齐期间修改数据库时拒绝覆盖更新的数据", async (t) => {
+  const { config } = await fixture(t);
   await assert.rejects(backfillMarketWallets(config, { createProvider: () => ({
-    getTransaction: async (hash) => { await fs.writeFile(config.dataFile, modified); return { hash, from: trader }; },
+    getTransaction: async (hash) => { withMarketDatabase(config, true, (db) => db.exec("UPDATE market_state SET revision = revision + 1, last_block = 100")); return { hash, from: trader }; },
     destroy: async () => {},
   }) }), /被其他进程修改/);
-  assert.equal(await fs.readFile(config.dataFile, "utf8"), modified);
+  const updated = await readMarketSnapshot(config, { full: true });
+  assert.equal(updated.history.lastBlock, 100);
+  assert.equal(updated.history.events[0].wallet, router);
 });

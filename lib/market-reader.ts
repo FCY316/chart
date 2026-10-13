@@ -1,15 +1,17 @@
 import type { MarketSnapshot } from "@/lib/market";
-import { getMarketConfig, readMarketSnapshot } from "@/lib/pancakeswap-v2.mjs";
+import { getMarketConfig } from "@/lib/market/config.mjs";
+import { readMarketSnapshot } from "@/lib/market/repository.mjs";
 
 let pending: Promise<MarketSnapshot | null> | undefined;
 let expiresAt = 0;
 
-/** 运行时读取行情，构建不依赖 market.json 是否存在。 */
-export async function readMarket(): Promise<MarketSnapshot | null> {
-  // 同一 Node 进程内最多每秒解析一次大 JSON，多个 SSE 客户端共用结果。
+/** 首页/SSE 共用有界 SQL 快照，构建不依赖数据文件。显式 full 不进入缓存。 */
+export async function readMarket({ full = false } = {}): Promise<MarketSnapshot | null> {
+  if (full) return await readMarketSnapshot(getMarketConfig(), { full: true }) as MarketSnapshot | null;
+  // 每进程每秒最多查询一次最近 120 根/周期、25 笔交易，不读取完整历史。
   if (!pending || Date.now() >= expiresAt) {
     expiresAt = Date.now() + 1_000;
-    pending = readMarketSnapshot(getMarketConfig()).catch((error: unknown) => {
+    pending = (readMarketSnapshot(getMarketConfig()) as Promise<MarketSnapshot | null>).catch((error: unknown) => {
       pending = undefined;
       throw error;
     });

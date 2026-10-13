@@ -3,6 +3,8 @@
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { formatEventTime, formatNumber, formatPrice, maskAddress, type MarketEvent } from "@/utils/market";
 import { convertAddress, type AddressType } from "@/utils/address";
+import { Button } from "@/components/ui/button";
+import { TableCell, TableRow } from "@/components/ui/table";
 
 type TransactionRowProps = {
   transaction: MarketEvent;
@@ -31,37 +33,42 @@ export function TransactionRow({ transaction, explorerUrl, copiedTarget, address
   const fullTime = formatEventTime(transaction.time, true);
 
   return (
-    <tr className={`transaction-row transaction-row-${tone}`}>
-      <td>
-        <a className="transaction-time" href={`${explorerUrl.replace(/\/$/, "")}/tx/${transaction.tx}`} target="_blank" rel="noreferrer" title={fullTime} aria-label={`查看交易详情，时间 ${fullTime}`}>
+    <TableRow className={`transaction-row transaction-row-${tone}`}>
+      <TableCell>
+        <span className="transaction-time" title={fullTime}>
           <time dateTime={transaction.time}>
             <span className="transaction-time-desktop">{fullTime}</span>
             <span className="transaction-time-mobile">{formatEventTime(transaction.time)}</span>
           </time>
-          <ExternalLink size={12} aria-hidden="true" />
-        </a>
-      </td>
-      <td className="transaction-type">{SIDE_LABELS[transaction.side]}</td>
-      <td className="transaction-numeric transaction-price">
+        </span>
+      </TableCell>
+      <TableCell className="transaction-type">{SIDE_LABELS[transaction.side]}</TableCell>
+      <TableCell className="transaction-numeric transaction-price">
         {isLiquidity ? "—" : formatPrice(transaction.price ?? Number.NaN)}
-      </td>
-      <td className="transaction-numeric transaction-volume">
+      </TableCell>
+      <TableCell className="transaction-numeric transaction-volume">
         <span>{formatNumber(transaction.baseAmount ?? Number.NaN, 4)} <span className="transaction-unit">HUGE</span></span>
         {isLiquidity && <span>{formatNumber(transaction.quoteAmount ?? Number.NaN, 4)} <span className="transaction-unit">NFX</span></span>}
-      </td>
+      </TableCell>
       {/* 流动性不是成交，不填成交价／成交额；两种代币数量都放在数量列。
           Swap 总额直接取链上 quoteAmount，不能用已舍入的显示均价反算。 */}
-      <td className="transaction-numeric transaction-total">
+      <TableCell className="transaction-numeric transaction-total">
         {isLiquidity ? "—" : formatNumber(transaction.quoteAmount ?? Number.NaN, 4)}
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         {transaction.wallet ? (
-          <button type="button" className={`transaction-wallet${isCopied ? " is-copied" : ""}`} onClick={() => void onCopy(walletAddress, copyTarget)} title={walletAddress} aria-label={isCopied ? "地址已复制" : `复制交易者地址 ${walletAddress}`}>
+          <Button variant="ghost" size="sm" className={`transaction-wallet h-auto${isCopied ? " is-copied" : ""}`} onClick={() => void onCopy(walletAddress, copyTarget)} title={walletAddress} aria-label={isCopied ? "地址已复制" : `复制交易者地址 ${walletAddress}`}>
             {maskAddress(walletAddress)}
             {isCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-          </button>
+          </Button>
         ) : <span className="transaction-unknown">未知</span>}
-      </td>
-    </tr>
+      </TableCell>
+      <TableCell>
+        <a className="transaction-hash" href={`${explorerUrl.replace(/\/$/, "")}/tx/${transaction.tx}`} target="_blank" rel="noopener noreferrer" title={transaction.tx} aria-label={`在区块浏览器查看交易 ${transaction.tx}`}>
+          {maskAddress(transaction.tx)}<ExternalLink size={12} aria-hidden="true" />
+        </a>
+      </TableCell>
+      <TableCell className="transaction-block">{typeof transaction.blockNumber === "number" && Number.isSafeInteger(transaction.blockNumber) && transaction.blockNumber >= 0 ? transaction.blockNumber : "—"}</TableCell>
+    </TableRow>
   );
 }
