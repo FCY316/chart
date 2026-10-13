@@ -1,6 +1,7 @@
 "use client";
 
-import { BarChart3, Radio } from "lucide-react";
+import Image from "next/image";
+import { Radio } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { useMarketDashboard } from "@/hooks/use-market-dashboard";
@@ -17,7 +18,10 @@ export function MarketHeader({ streamStatus, addressType, onAddressTypeChange }:
   return (
     <header className="topbar page-width">
       <div className="brand-lockup">
-        <div className="brand-mark"><BarChart3 size={17} /></div>
+        {/* 项目标志独立于代币 Logo；固定尺寸避免图片加载时顶栏跳动。 */}
+        <div className="brand-mark">
+          <Image src="/brand/chart-logo.png" alt="" width={31} height={31} sizes="31px" loading="eager" />
+        </div>
         <div>
           <p className="brand-name">chart</p>
           <p className="brand-subtitle">MARKET TERMINAL</p>

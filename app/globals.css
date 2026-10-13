@@ -104,7 +104,8 @@ a { color: inherit; text-decoration: none; }
 .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 70px; border-bottom: 1px solid var(--line-soft); padding-block: 12px; }
 .brand-lockup, .topbar-actions, .pair-heading, .pair-title-row, .chart-heading, .section-title, .network-chip, .live-badge, .address-button { display: flex; align-items: center; }
 .brand-lockup { gap: 10px; }
-.brand-mark { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid rgba(41, 207, 143, 0.38); border-radius: 9px; background: var(--green-soft); color: var(--green); }
+.brand-mark { display: grid; width: 31px; height: 31px; flex: 0 0 31px; place-items: center; }
+.brand-mark img { display: block; width: 31px; height: 31px; object-fit: contain; }
 .brand-name, .brand-subtitle { margin: 0; line-height: 1; }
 .brand-name { color: var(--text); font-size: 11px; font-weight: 800; letter-spacing: 0.18em; }
 .brand-subtitle { margin-top: 5px; color: var(--muted-foreground); font-size: 8px; font-weight: 700; letter-spacing: 0.15em; }

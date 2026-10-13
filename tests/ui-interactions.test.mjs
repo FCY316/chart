@@ -63,6 +63,25 @@ test("真实 Popover 通过 Portal 打开，说明完整，Esc/外部点击/关�
   assert.match(css, /max-height:\s*var\(--radix-popover-content-available-height\)/);
 });
 
+test("项目 Logo 使用透明 PNG，顶栏尺寸固定且标签页不再使用默认图标", () => {
+  const { MarketHeader } = loadTypeScript("components/market/market-header.tsx");
+  const { container } = render(h(MarketHeader, { streamStatus: "connected", addressType: "hg", onAddressTypeChange: () => {} }));
+  const logo = container.querySelector(".brand-mark img");
+  assert.ok(logo);
+  assert.match(logo.getAttribute("src"), /chart-logo\.png/);
+  assert.equal(logo.getAttribute("width"), "31");
+  assert.equal(logo.getAttribute("height"), "31");
+  assert.equal(logo.getAttribute("alt"), "", "旁边已有 chart 文本，无需重复朗读标志");
+  for (const file of ["public/brand/chart-logo.png", "app/icon.png"]) {
+    const png = fs.readFileSync(file);
+    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+    assert.equal(png.readUInt32BE(16), png.readUInt32BE(20), "Logo 保持正方形");
+    assert.equal(png[25], 6, "保留 RGBA 透明通道");
+  }
+  assert.equal(fs.readFileSync("app/icon.png").readUInt32BE(16), 64);
+  assert.equal(fs.existsSync("app/favicon.ico"), false);
+});
+
 test("地址 ToggleGroup 保留单选、点击已选项不清空、键盘切换与本地持久化", async () => {
   const { MarketHeader } = loadTypeScript("components/market/market-header.tsx");
   const { useAddressConvert } = loadTypeScript("hooks/use-address-convert.ts");
