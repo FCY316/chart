@@ -196,6 +196,7 @@ test("实际 dashboard hook 串行补齐 425 笔漏单，历史换代清除孤�
       events: Array.from({ length: Math.min(total, 25) }, (_, index) => event(block - index)), transactionsCursor: "older" },
   });
   let latest = snapshot(25, 25, "a", 1), handlers, model, unsubscribed = false;
+  const paginationRoots = [];
   const pages = [];
   const client = {
     fetchMarketSnapshot: async () => latest,
@@ -212,11 +213,18 @@ test("实际 dashboard hook 串行补齐 425 笔漏单，历史换代清除孤�
   const { useMarketDashboard } = loadTypeScript("hooks/use-market-dashboard.ts", {
     "@/lib/market-client": client,
     "@/hooks/use-market-health": { useMarketHealth: () => null },
-    "@/utils/transaction-pagination": { observeTransactionPagination: () => () => {} },
+    "@/utils/transaction-pagination": { observeTransactionPagination: (root) => { paginationRoots.push(root); return () => {}; } },
   });
-  function Harness() { model = useMarketDashboard(); return h("span", null, model.market?.history?.lastBlock ?? "loading"); }
+  function Harness() {
+    model = useMarketDashboard();
+    return h("div", { ref: model.listRef },
+      h("span", { ref: model.loadMoreRef }, model.market?.history?.lastBlock ?? "loading"));
+  }
   const view = render(h(React.StrictMode, null, h(Harness)));
   await waitFor(() => assert.equal(model.market?.history?.lastBlock, 25));
+  assert.equal(model.activeInterval, "1d", "首次打开默认日 K");
+  await act(async () => model.setActiveInterval("1h"));
+  await waitFor(() => assert.equal(dom.window.localStorage.getItem("interstellar-market-active-interval"), "1h"));
   latest = snapshot(450, 450, "a", 2);
   await act(async () => handlers.onUpdate({ type: "market:update", metadata: latest.metadata, pool: latest.pool, quote: latest.quote, metrics: latest.metrics, history: latest.history, candlesByInterval: {} }));
   await waitFor(() => assert.equal(model.market?.history?.lastBlock, 450));
@@ -228,8 +236,15 @@ test("实际 dashboard hook 串行补齐 425 笔漏单，历史换代清除孤�
   assert.equal(model.market.history.lastBlock, 20);
   assert.equal(model.market.history.events.length, 20);
   assert.ok(model.market.history.events.every((item) => item.blockNumber <= 20));
+  const previousRoot = paginationRoots.at(-1);
+  view.rerender(h(React.StrictMode, null, h(Harness)));
+  await waitFor(() => assert.equal(paginationRoots.at(-1), model.listRef.current));
+  assert.equal(paginationRoots.at(-1), previousRoot, "重排布局不替换列表 DOM");
   view.unmount();
   assert.equal(unsubscribed, true);
+  const restoredView = render(h(Harness));
+  await waitFor(() => assert.equal(model.activeInterval, "1h", "用户选择的周期刷新后优先恢复"));
+  restoredView.unmount();
 });
 
 test("SSE 已连接仍独立显示过期警告及区块落后信息", async () => {

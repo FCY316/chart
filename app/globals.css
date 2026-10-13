@@ -99,7 +99,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; }
 a { color: inherit; text-decoration: none; }
 
-.market-app { min-height: 100svh; padding-bottom: env(safe-area-inset-bottom); }
+.market-app { min-height: 100svh; padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
 .page-width { width: 100%; margin-inline: auto; }
 .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 70px; border-bottom: 1px solid var(--line-soft); padding-block: 12px; }
 .brand-lockup, .topbar-actions, .pair-heading, .pair-title-row, .chart-heading, .section-title, .network-chip, .live-badge, .address-button { display: flex; align-items: center; }
@@ -109,6 +109,8 @@ a { color: inherit; text-decoration: none; }
 .brand-name, .brand-subtitle { margin: 0; line-height: 1; }
 .brand-name { color: var(--text); font-size: 11px; font-weight: 800; letter-spacing: 0.18em; }
 .brand-subtitle { margin-top: 5px; color: var(--muted-foreground); font-size: 8px; font-weight: 700; letter-spacing: 0.15em; }
+.header-freshness { order: 3; flex-basis: 100%; }
+.header-freshness .market-freshness { margin-bottom: 0; }
 .topbar-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .ui-badge, .network-chip { min-height: 26px; border: 1px solid var(--line); border-radius: 999px; padding: 0 9px; color: var(--muted-strong); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .live-badge { gap: 6px; border-color: rgba(41, 207, 143, 0.27); background: var(--green-soft); color: var(--green); letter-spacing: 0.08em; }
@@ -117,6 +119,8 @@ a { color: inherit; text-decoration: none; }
 .topbar { padding-inline: 14px; }
 .page-content { padding-top: 0; }
 .terminal-grid { display: grid; grid-template-areas: "chart" "pair" "trades" "footer"; min-width: 0; }
+.terminal-panels, .chart-resizable { display: contents; }
+.terminal-resize-handle { display: none; }
 .chart-card { grid-area: chart; }
 .market-sidebar { grid-area: pair; min-width: 0; padding: 18px 14px; border-block: 1px solid var(--line); background: var(--surface); }
 .transactions-card { grid-area: trades; min-width: 0; }
@@ -160,7 +164,9 @@ a { color: inherit; text-decoration: none; }
 .ui-card { border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(160deg, rgba(16, 25, 35, 0.96), rgba(9, 15, 22, 0.98)); box-shadow: 0 16px 45px rgba(0, 0, 0, 0.17); }
 .chart-card { overflow: hidden; }
 .ui-card-header { padding: 13px 14px; }
-.chart-card-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; border-bottom: 1px solid var(--line-soft); }
+.chart-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; min-height: 48px; border-bottom: 1px solid var(--line-soft); }
+.chart-card-header .chart-heading { flex: 1; }
+.chart-card-header .interval-tabs { order: 3; flex-basis: 100%; padding-inline: 0; }
 .chart-heading { gap: 8px; color: var(--muted-strong); font-size: 12px; font-weight: 750; letter-spacing: 0.04em; }
 .chart-heading svg { color: var(--green); }
 .chart-unit { border-left: 1px solid var(--line); padding-left: 8px; color: var(--muted-foreground); font-size: 10px; font-weight: 600; }
@@ -204,10 +210,10 @@ a { color: inherit; text-decoration: none; }
 .stat-card small { margin-top: 5px; color: var(--muted-foreground); font-size: 9px; }
 
 .transactions-card { overflow: hidden; }
-.section-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-block: 14px 9px; }
+.transaction-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 10px 14px 0; }
+.transaction-toolbar > .transaction-filters { order: 3; flex-basis: 100%; padding-inline: 0; }
+.transaction-toolbar .transaction-heading > p { margin: 6px 0 0 15px; color: var(--muted-foreground); font-size: 10px; }
 .section-title { gap: 9px; color: var(--text); font-size: 14px; font-weight: 750; }
-.section-header p { margin: 6px 0 0 15px; color: var(--muted-foreground); font-size: 10px; }
-.transaction-section-header { align-items: flex-start; }
 .transaction-heading { flex: 1; min-width: 0; }
 .transaction-heading .section-title { min-height: 28px; }
 .transaction-help-toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
@@ -228,6 +234,20 @@ a { color: inherit; text-decoration: none; }
 .address-type-toggle button:focus-visible { outline: 1px solid var(--green); outline-offset: 1px; }
 .transaction-list { max-height: 540px; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-color: var(--line) transparent; }
 .transaction-list:focus-visible { outline: 1px solid var(--green); outline-offset: -1px; }
+/* 统一细滚动条：不改变滚动容器/分页根，宽度固定，悬停只加强颜色。 */
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options) {
+  --scroll-thumb: rgba(130, 144, 163, 0.24);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options):is(:hover, :focus-within) {
+  --scroll-thumb: rgba(130, 144, 163, 0.52);
+}
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options)::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options)::-webkit-scrollbar-track { background: transparent; }
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options)::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: var(--scroll-thumb); background-clip: padding-box; }
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options)::-webkit-scrollbar-thumb:hover { background-color: rgba(41, 207, 143, 0.6); }
+:is(.terminal-panels, .market-sidebar, .transaction-list, .indicator-options)::-webkit-scrollbar-corner { background: transparent; }
 /* PC 表格独立双向滚动，手机仅横向滚动；不隐藏价格、金额或时间。 */
 .transaction-table { width: 100%; min-width: 1100px; border-collapse: separate; border-spacing: 0; color: var(--muted-strong); font-size: 11px; }
 .transaction-table th, .transaction-table td { padding: 14px 16px; text-align: left; vertical-align: middle; white-space: nowrap; }
@@ -267,7 +287,8 @@ a { color: inherit; text-decoration: none; }
 .transaction-scroll-hint { display: none; }
 .empty-state, .load-more { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 60px; color: var(--muted-foreground); font-size: 11px; }
 .load-more { color: var(--green); }
-.page-footer { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; color: var(--muted-foreground); font-family: var(--font-mono); font-size: 9px; }
+/* 固定状态栏始终贴窗口底部；market-app 为它与手机安全区预留空间。 */
+.page-footer { display: flex; position: fixed; right: 0; bottom: 0; left: 0; z-index: 30; align-items: center; justify-content: space-between; gap: 12px; height: calc(28px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--background); padding: 0 14px env(safe-area-inset-bottom); color: var(--muted-foreground); font-family: var(--font-mono); font-size: 9px; }
 
 /* 全宽终端：手机不锁页面高度，保留纵向滚动及列表视口分页。 */
 .terminal-grid .ui-card { border-radius: 0; box-shadow: none; background: var(--surface); }
@@ -294,18 +315,34 @@ a { color: inherit; text-decoration: none; }
 
 /* 宽屏主区上下分配图表/交易，右侧为当前 LP，不预设不存在的多交易对。 */
 @media (min-width: 1024px) {
-  .market-app { display: flex; flex-direction: column; height: 100dvh; min-height: 720px; padding: 0; }
-  .topbar { flex: 0 0 56px; min-height: 56px; padding-block: 8px; }
-  .page-content { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-  .terminal-grid { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(340px, 1.65fr) minmax(220px, 1fr) 30px; grid-template-areas: "chart pair" "trades pair" "footer footer"; }
+  /* 框架占满窗口，只有左侧主区/右栏各自滚动，不让 document 承担桌面滚动。 */
+  .market-app { display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden; padding: 0 0 calc(28px + env(safe-area-inset-bottom)); }
+  .topbar { position: relative; flex: none; z-index: 20; min-height: 48px; background: var(--background); padding-block: 6px; }
+  .header-freshness { order: 0; flex-basis: auto; margin-left: auto; }
+  .header-freshness .market-freshness { gap: 6px; font-size: 10px; }
+  .header-freshness .market-freshness > button { width: 24px; height: 24px; }
+  .topbar-actions { margin-left: 0; }
+  .page-content { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+  .page-content > .error-banner { flex: none; }
+  .terminal-grid { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 280px; grid-template-rows: minmax(0, 1fr); grid-template-areas: "panels pair"; }
+  .terminal-panels { display: flex; grid-area: panels; min-width: 0; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; flex-direction: column; }
+  .chart-resizable { display: flex; flex: none; height: var(--terminal-chart-height, 720px); }
+  .chart-resizable > .chart-card { flex: 1; min-width: 0; }
+  .terminal-panels.is-resizing { user-select: none; }
+  .terminal-panels.is-resizing iframe { pointer-events: none; }
+  .terminal-resize-handle { display: flex; position: relative; flex: 0 0 10px; justify-content: center; width: 100%; height: 10px; min-height: 10px; padding: 0; border-block: 1px solid var(--line); border-radius: 0; background: var(--surface-raised); cursor: row-resize; touch-action: none; }
+  .terminal-resize-handle::before { position: absolute; width: 32px; height: 2px; border-radius: 2px; background: var(--muted-foreground); content: ""; }
+  .terminal-resize-handle:hover, .terminal-resize-handle:focus-visible { background: var(--green-soft); }
   .chart-card { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line) !important; }
-  .chart-card-header { flex-shrink: 0; min-height: 38px; padding-block: 7px; }
+  .chart-card-header { flex-shrink: 0; flex-wrap: nowrap; min-height: 36px; padding: 3px 10px; }
+  .chart-card-header .chart-heading { flex: 0 0 auto; font-size: 11px; }
+  .chart-card-header .interval-tabs { order: 0; flex-basis: auto; margin-left: auto; }
   .interval-tabs { flex-shrink: 0; padding-block: 4px; }
   .chart-content { display: flex; flex: 1; min-height: 0; }
   .chart-workspace { display: flex; flex: 1; flex-direction: column; min-width: 0; }
   .indicator-toolbar, .indicator-error { flex-shrink: 0; }
   .chart-shell { flex: 1; height: auto; min-height: 0; }
-  .market-sidebar { overflow-y: auto; border: 0; border-left: 1px solid var(--line); padding: 20px 16px; }
+  .market-sidebar { position: relative; height: 100%; overflow-y: auto; border: 0; border-left: 1px solid var(--line); padding: 20px 16px; }
   .market-sidebar .pair-hero { display: grid; gap: 22px; margin-bottom: 22px; }
   .market-sidebar .pair-title-row h1 { font-size: 22px; }
   .market-sidebar .price-block { text-align: left; }
@@ -315,16 +352,18 @@ a { color: inherit; text-decoration: none; }
   .market-sidebar .stat-card > svg { position: absolute; right: 14px; top: 14px; opacity: .7; }
   .market-sidebar .stat-card strong { font-size: 14px; }
   .market-sidebar .stat-card small { font-size: 10px; }
-  .transactions-card { display: flex; flex-direction: column; min-height: 0; }
+  .transactions-card { display: flex; flex: none; flex-direction: column; height: 640px; min-height: 640px; }
   .transaction-tabs, .transaction-tab-content { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-  .section-header { flex-shrink: 0; padding-block: 8px 4px; }
-  .section-header p { display: none; }
+  .transaction-toolbar { flex-shrink: 0; flex-wrap: nowrap; min-height: 36px; border-bottom: 1px solid var(--line-soft); padding: 2px 10px; }
+  .transaction-toolbar > .transaction-filters { order: 0; flex-basis: auto; }
+  .transaction-toolbar .transaction-heading > p { display: none; }
+  .transaction-toolbar .section-title { font-size: 12px; }
+  .transaction-toolbar > button { width: 28px; height: 28px; }
   .transaction-filters { flex-shrink: 0; padding-block: 4px; }
-  .transaction-list { flex: 1; min-height: 0; max-height: none; }
+  .transaction-list { flex: 1; min-height: 0; max-height: none; overflow: auto; overscroll-behavior-y: auto; }
   .transaction-table { min-width: 1060px; }
-  .transaction-table td { height: 46px; padding-block: 9px; }
-  .transaction-table th { padding-block: 8px; }
-  .page-footer { align-items: center; border-top: 1px solid var(--line); padding-block: 0; }
+  .transaction-table td { height: 46px; padding: 9px 16px; }
+  .transaction-table th { padding: 8px 16px; }
 }
 
 /* 手机列表按内容展开，上下滑动页面而非困在列表内部；仅左右滑动表格。 */

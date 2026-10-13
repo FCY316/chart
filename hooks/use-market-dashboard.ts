@@ -11,14 +11,15 @@ type StreamStatus = "connecting" | "connected" | "fallback";
 type PoolReserves = { base: number; quote: number; baseSymbol: string; quoteSymbol: string };
 
 const ACTIVE_INTERVAL_STORAGE_KEY = "interstellar-market-active-interval";
+const DEFAULT_INTERVAL: MarketInterval = "1d";
 
 function getStoredInterval(): MarketInterval {
-  if (typeof window === "undefined") return "5m";
+  if (typeof window === "undefined") return DEFAULT_INTERVAL;
   try {
     const saved = window.localStorage.getItem(ACTIVE_INTERVAL_STORAGE_KEY);
-    return saved === "1m" || saved === "5m" || saved === "15m" || saved === "1h" || saved === "4h" || saved === "1d" ? saved : "5m";
+    return saved === "1m" || saved === "5m" || saved === "15m" || saved === "1h" || saved === "4h" || saved === "1d" ? saved : DEFAULT_INTERVAL;
   } catch {
-    return "5m";
+    return DEFAULT_INTERVAL;
   }
 }
 
@@ -39,7 +40,7 @@ export function useMarketDashboard() {
   const health = useMarketHealth();
   // Keep the server and first client render identical; localStorage is read
   // once after hydration to avoid a tab mismatch warning.
-  const [activeInterval, setActiveInterval] = useState<MarketInterval>("5m");
+  const [activeInterval, setActiveInterval] = useState<MarketInterval>(DEFAULT_INTERVAL);
   const [intervalHydrated, setIntervalHydrated] = useState(false);
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>("all");
   const [visibleCount, setVisibleCount] = useState(20);

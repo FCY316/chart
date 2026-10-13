@@ -1,6 +1,6 @@
 "use client";
 import { ChevronDown, LoaderCircle, RefreshCw } from "lucide-react";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TransactionRow } from "@/components/market/transaction-row";
 import { TransactionDirectionHelp } from "@/components/market/transaction-direction-help";
@@ -16,17 +16,18 @@ export function TransactionsPanel({ model, addressType }: { model: ReturnType<ty
   const { fetchMarket, refreshing, transactionFilter, setTransactionFilter, setVisibleCount, listRef, visibleTransactions, markAddressCopied, copiedTarget, explorerUrl, visibleCount, transactions, transactionHasMore, loadMoreRef, transactionLoading } = model;
   return (
     <Card className="transactions-card">
-      <CardHeader className="section-header transaction-section-header flex-row space-y-0">
-        <TransactionDirectionHelp />
-        <Button variant="ghost" size="icon" aria-label="刷新" onClick={() => void fetchMarket(true)} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}</Button>
-      </CardHeader>
       <Tabs value={transactionFilter} className="transaction-tabs" onValueChange={(value) => {
         const selected = FILTERS.find(([key]) => key === value);
         if (selected) { setTransactionFilter(selected[0]); setVisibleCount(20); }
       }}>
+      {/* 桌面标题/筛选/刷新共用一行，小屏由 CSS 将筛选换到下一行。 */}
+      <div className="transaction-toolbar">
+      <TransactionDirectionHelp />
       <TabsList className="transaction-filters" aria-label="交易类型">
         {FILTERS.map(([key, label]) => <TabsTrigger value={key} key={key} className={transactionFilter === key ? "active" : ""}>{label}</TabsTrigger>)}
       </TabsList>
+      <Button variant="ghost" size="icon" aria-label="刷新" onClick={() => void fetchMarket(true)} disabled={refreshing}>{refreshing ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}</Button>
+      </div>
       <TabsContent value={transactionFilter} className="transaction-tab-content">
       <p className="transaction-scroll-hint">左右滑动查看完整交易信息</p>
       <div className="transaction-list" ref={listRef} tabIndex={0} role="region" aria-label="交易记录，可横向滑动查看全部列">

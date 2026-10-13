@@ -95,7 +95,7 @@ test("实际图表配置仅释放纵向触摸，保留横向拖图、缩放和�
   }
 });
 
-test("原生指标默认 VOL 独立面板、MA 5/10/20；EMA 切换防重复，按池子保存完整参数", async (t) => {
+test("默认只启用 VOL，MA 手动开启 5/10/20；指标切换与参数持久化", async (t) => {
   const previous = globalThis.window;
   t.after(() => { globalThis.window = previous; });
   const storage = new Map(), listeners = new Map(), events = new Map();
@@ -128,9 +128,11 @@ test("原生指标默认 VOL 独立面板、MA 5/10/20；EMA 切换防重复，�
   const controller = createChartPreferences(widget, key, (value) => { state = value; });
   await controller.initialize(false);
   assert.deepEqual(studies.map((study) => [study.name, study.overlay, study.inputs.length]), [
-    ["Volume", false, undefined], ["Moving Average", true, 5], ["Moving Average", true, 10], ["Moving Average", true, 20],
+    ["Volume", false, undefined],
   ]);
-  assert.deepEqual(state, { ...EMPTY_INDICATORS, VOL: true, MA: true, busy: false });
+  assert.deepEqual(state, { ...EMPTY_INDICATORS, VOL: true, MA: false, busy: false });
+  await controller.toggle("MA");
+  assert.deepEqual(studies.filter(study=>study.name==="Moving Average").map(study=>study.inputs.length),[5,10,20]);
   await Promise.all([controller.toggle("EMA"), controller.toggle("EMA")]);
   assert.deepEqual(studies.filter((study) => study.name.includes("Exponential")).map((study) => study.inputs.length), [12, 26]);
   await controller.toggle("EMA");
@@ -340,14 +342,110 @@ test("交易行八列：时间不是链接，只有 Hash 跳转完整交易地�
   assert.match(panel, /交易 Hash/); assert.match(panel, /块高/);
 });
 
-test("全屏终端桌面分栏，手机不锁视口并保持页面滚动", () => {
+test("桌面框架固定，图表和交易在左侧内部共同滚动且高度独立", () => {
   const css = fs.readFileSync("app/globals.css", "utf8");
-  assert.match(css, /\.page-width\s*\{\s*width:\s*100%/);
-  assert.match(css, /grid-template-areas:\s*"chart" "pair" "trades" "footer"/);
   const desktop = css.slice(css.indexOf("@media (min-width: 1024px)"));
-  assert.match(desktop, /height:\s*100dvh/);
-  assert.match(desktop, /grid-template-areas:\s*"chart pair" "trades pair" "footer footer"/);
-  assert.ok(!css.includes("overflow: hidden; height: 100dvh"));
+  assert.match(desktop, /\.market-app\s*\{[^}]*height:\s*100dvh;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/);
+  assert.match(desktop, /\.terminal-panels\s*\{[^}]*height:\s*100%;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto/);
+  assert.match(desktop, /\.market-sidebar\s*\{[^}]*height:\s*100%;[^}]*overflow-y:\s*auto/);
+  assert.match(desktop, /height:\s*var\(--terminal-chart-height, 720px\)/);
+  assert.match(desktop, /\.transactions-card\s*\{[^}]*min-height:\s*640px/);
+  assert.match(desktop, /\.transaction-table td\s*\{[^}]*height:\s*46px;[^}]*padding:\s*9px 16px/);
+  assert.match(desktop, /\.transactions-card\s*\{[^}]*height:\s*640px/);
+  assert.match(desktop, /\.transaction-list\s*\{[^}]*overflow:\s*auto/);
+  assert.match(css, /\.terminal-panels, \.chart-resizable\s*\{\s*display:\s*contents/);
+});
+
+test("独立图表高度校验和保存，不读取旧的上下分摊比例", (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const { readChartHeight, saveChartHeight, parseChartHeight, clampChartHeight, TERMINAL_HEIGHT_KEY } = loadTypeScript("utils/terminal-layout.ts");
+  const values = new Map();
+  globalThis.window = { localStorage: { getItem: key => values.get(key) ?? null, setItem: (key,value) => values.set(key,value) } };
+  assert.equal(readChartHeight(),720);
+  saveChartHeight(1100); assert.equal(readChartHeight(),1100);
+  assert.equal(clampChartHeight(100),480); assert.equal(clampChartHeight(4000),2000);
+  for (const value of [null,"null","[]","{","{}",'{"chart":58,"trades":42}','{"chartHeight":"720"}']) assert.equal(parseChartHeight(value),undefined);
+  saveChartHeight(NaN); assert.equal(values.get(TERMINAL_HEIGHT_KEY),'{"chartHeight":1100}');
+  globalThis.window = { get localStorage() { throw new Error("blocked"); } };
+  assert.equal(readChartHeight(),720);
+  assert.doesNotThrow(() => saveChartHeight(720));
+});
+
+test("数据源/区块状态栏固定贴底，页面为状态栏和安全区预留空间", () => {
+  const css=fs.readFileSync("app/globals.css","utf8");
+  assert.match(css,/\.page-footer\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*0/);
+  assert.match(css,/\.market-app\s*\{[^}]*padding-bottom:\s*calc\(28px \+ env\(safe-area-inset-bottom\)\)/);
+});
+
+test("旧指标布局一次更新 MA/VOL 默认值，之后尊重用户手动选择", async (t) => {
+  const previous=globalThis.window;
+  t.after(()=>{globalThis.window=previous;});
+  const storage=new Map(), sizes=[];
+  globalThis.window={setTimeout,clearTimeout,addEventListener(){},removeEventListener(){},localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)}};
+  const { createChartPreferences }=loadTypeScript("utils/tradingview-preferences.ts");
+  let studies=[{id:"vol",name:"Volume"},{id:"old-ma",name:"Moving Average"},{id:"rsi",name:"Relative Strength Index"}];
+  const pane=(id,main=false)=>({hasMainSeries:()=>main,getLeftPriceScales:()=>[],getRightPriceScales:()=>[{getStudies:()=>[id]}],setHeight:height=>sizes.push([id,height])});
+  const chart={getAllStudies:()=>studies,removeEntity:id=>{studies=studies.filter(s=>s.id!==id);},createStudy:async name=>{const id=name;studies.push({id,name});return id;},executeActionById(){},getPanes:()=>[pane("main",true),pane("vol"),pane("rsi")]};
+  const widget={activeChart:()=>chart,getStudiesList:()=>["Volume","Moving Average"],subscribe(){},unsubscribe(){},save:cb=>cb({charts:[{}]})};
+  const controller=createChartPreferences(widget,"layout",()=>{});
+  await controller.initialize(true);
+  assert.ok(!studies.some(s=>s.id==="old-ma"));
+  assert.ok(studies.some(s=>s.id==="rsi"));
+  assert.deepEqual(sizes,[["vol",90]],"不能缩小其他副图或主图");
+  await controller.toggle("MA");
+  assert.ok(studies.some(s=>s.name==="Moving Average"));
+  controller.dispose();
+  const restored=createChartPreferences(widget,"layout",()=>{});
+  await restored.initialize(true);
+  assert.ok(studies.some(s=>s.name==="Moving Average"),"用户后来手动开启的 MA 保持不变");
+  assert.equal(sizes.length,1,"不每次恢复都覆盖用户调整的副图高度");
+  restored.dispose();
+});
+
+test("单图表拖动、键盘和重置持久化，取消/卸载释放监听", (t) => {
+  const previous = globalThis.window;
+  t.after(() => { globalThis.window = previous; });
+  const listeners = new Map(), effects = [], updates = [], writes = [];
+  let frame, canceled = false, stateIndex = 0;
+  globalThis.window = {
+    requestAnimationFrame: callback => { frame=callback; return 1; }, cancelAnimationFrame: () => { canceled=true; },
+    addEventListener: (name,callback) => listeners.set(name,callback),
+    removeEventListener: (name,callback) => { assert.equal(listeners.get(name),callback); listeners.delete(name); },
+    localStorage: { getItem: () => '{"chartHeight":900}', setItem: (_key,value) => writes.push(JSON.parse(value)) },
+  };
+  const { useChartHeight } = loadTypeScript("hooks/use-chart-height.ts", { react: {
+    useState: value => { const index=stateIndex++; return [value, next => updates.push([index,next])]; },
+    useRef: value => ({current:value}), useCallback: fn => fn, useEffect: effect => effects.push(effect),
+  } });
+  const hook=useChartHeight(), dispose=effects[0](); frame();
+  assert.deepEqual(updates.at(-1),[0,900]);
+  hook.onPointerDown({button:0,pointerId:1,clientY:100,preventDefault() {}});
+  listeners.get("pointermove")({pointerId:2,clientY:350});
+  assert.equal(writes.length,0);
+  listeners.get("pointermove")({pointerId:1,clientY:350});
+  assert.deepEqual(updates.at(-1),[0,1150]);
+  listeners.get("pointerup")({pointerId:1});
+  assert.deepEqual(writes.at(-1),{chartHeight:1150});
+  hook.onKeyDown({key:"ArrowUp",shiftKey:false,preventDefault() {}});
+  assert.deepEqual(writes.at(-1),{chartHeight:1130});
+  hook.reset(); assert.deepEqual(writes.at(-1),{chartHeight:720});
+  hook.onPointerDown({button:0,pointerId:3,clientY:100,preventDefault() {}});
+  listeners.get("blur")({});
+  assert.deepEqual(updates.at(-1),[1,false]);
+  dispose(); assert.equal(listeners.size,0); assert.equal(canceled,true);
+});
+
+test("跨断点保持同一套图表/交易 DOM，分隔条只控制图表", () => {
+  const { MarketWorkspace } = loadTypeScript("components/market/market-workspace.tsx");
+  const html=renderToStaticMarkup(createElement(MarketWorkspace, {
+    chart:createElement("div",null,"测试图表"), pair:createElement("div",null,"测试池子"),
+    transactions:createElement("div",null,"测试交易"),footer:createElement("footer",null,"测试页脚"),
+  }));
+  for(const text of ["测试图表","测试池子","测试交易","测试页脚"]) assert.equal(html.split(text).length-1,1);
+  assert.match(html,/aria-controls="market-chart-panel"/);
+  assert.match(html,/aria-valuenow="720"/);
+  assert.match(html,/aria-label="调整 K 线高度"/);
 });
 
 test("恢复原深蓝黑主题与渐变，保留涨跌语义与文字对比度", () => {
@@ -389,6 +487,19 @@ test("图表外不再渲染手机开高低收栏，保留原生图表与指标�
   assert.match(html, /tradingview-container/);
   assert.match(html, /图表指标/);
   assert.ok(!fs.readFileSync("app/globals.css", "utf8").includes("candle-ohlc"));
+});
+
+test("滚动条统一为低对比细条，悬停不改变宽度或滚动容器", () => {
+  const css = fs.readFileSync("app/globals.css", "utf8");
+  const start = css.indexOf("/* 统一细滚动条");
+  const rules = css.slice(start, css.indexOf("/* PC 表格", start));
+  for (const name of [".terminal-panels", ".market-sidebar", ".transaction-list", ".indicator-options"]) assert.ok(rules.includes(name));
+  assert.match(rules, /scrollbar-width:\s*thin/);
+  assert.match(rules, /scrollbar-color:\s*var\(--scroll-thumb\) transparent/);
+  assert.match(rules, /width:\s*6px; height:\s*6px/);
+  assert.match(rules, /border-radius:\s*999px/);
+  assert.match(rules, /:focus-within/);
+  assert.ok(!rules.includes("display: none") && !rules.includes("overflow:"), "不隐藏可操作性、不改滚动根");
 });
 
 test("手机表格无独立纵向滚动范围，所有八列仍可横向查看", () => {

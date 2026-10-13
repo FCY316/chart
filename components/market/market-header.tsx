@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { Radio } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -11,10 +12,11 @@ type MarketHeaderProps = {
   streamStatus: ReturnType<typeof useMarketDashboard>["streamStatus"];
   addressType: AddressType;
   onAddressTypeChange: (type: AddressType) => void;
+  freshness?: ReactNode;
 };
 
 /** 页面顶栏始终显示，地址偏好由页面统一管理并传给交易列表。 */
-export function MarketHeader({ streamStatus, addressType, onAddressTypeChange }: MarketHeaderProps) {
+export function MarketHeader({ streamStatus, addressType, onAddressTypeChange, freshness }: MarketHeaderProps) {
   return (
     <header className="topbar page-width">
       <div className="brand-lockup">
@@ -27,6 +29,7 @@ export function MarketHeader({ streamStatus, addressType, onAddressTypeChange }:
           <p className="brand-subtitle">MARKET TERMINAL</p>
         </div>
       </div>
+      {freshness && <div className="header-freshness">{freshness}</div>}
       <div className="topbar-actions">
         <Badge variant="outline" className={`live-badge stream-${streamStatus}`}><span className="live-dot" />{streamStatus === "connected" ? "SSE 已连接" : streamStatus === "fallback" ? "轮询备用" : "SSE 连接中"}</Badge>
         <Badge variant="outline" className="network-chip"><Radio size={13} /> Interstellar</Badge>
